@@ -48,12 +48,12 @@ jobs:
           extensions: pdo_mysql, redis, pcntl, bcmath, intl, zip
           coverage: none
 
+      - run: composer install --no-interaction --prefer-dist --no-progress
+
       - name: Prepare environment
         run: |
           cp .env.example .env
           php artisan key:generate
-
-      - run: composer install --no-interaction --prefer-dist --no-progress
 
       - run: vendor/bin/pint --test
 
