@@ -2,6 +2,7 @@
 
 use App\Domain\Files\Exceptions\DomainError;
 use App\Http\Middleware\AssignRequestId;
+use App\Http\Middleware\EnsureIdempotency;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -27,6 +28,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->prepend(AssignRequestId::class);
+        $middleware->alias(['idempotent' => EnsureIdempotency::class]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->shouldRenderJsonWhen(

@@ -12,8 +12,8 @@ Route::prefix('v1')->group(function (): void {
     Route::middleware(['auth:sanctum', 'throttle:api'])->group(function (): void {
         Route::delete('auth/tokens/current', [TokenController::class, 'destroy']);
 
-        Route::post('uploads', [UploadController::class, 'store'])->middleware('throttle:uploads-initiate');
-        Route::post('uploads/{file}/complete', [UploadController::class, 'complete']);
+        Route::post('uploads', [UploadController::class, 'store'])->middleware(['throttle:uploads-initiate', 'idempotent'])->name('uploads.store');
+        Route::post('uploads/{file}/complete', [UploadController::class, 'complete'])->middleware('idempotent')->name('uploads.complete');
         Route::post('uploads/{file}/parts', [UploadController::class, 'parts']);
         Route::post('uploads/{file}/abort', [UploadController::class, 'abort']);
 
