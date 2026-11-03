@@ -98,3 +98,13 @@ it('does not store 5xx responses', function () {
     $r = $this->postJson('/api/v1/test-boom', [], $h)->assertCreated();
     expect($r->headers->has('Idempotent-Replayed'))->toBeFalse()->and($calls)->toBe(2);
 });
+
+it('rejects reusing a key for a different file on complete', function () {
+    [$user, $a] = ownPendingFile();
+    $b = pendingFile(5, 'text/plain', $user);
+    $h = ['Idempotency-Key' => 'k'];
+    $this->postJson("/api/v1/uploads/{$a->id}/complete", [], $h);
+    $r = $this->postJson("/api/v1/uploads/{$b->id}/complete", [], $h);
+    $r->assertStatus(422)->assertJsonPath('error.code', 'IDEMPOTENCY_KEY_REUSED');
+    expect($r->headers->has('Idempotent-Replayed'))->toBeFalse();
+});

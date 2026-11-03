@@ -75,8 +75,11 @@ final class EnsureIdempotency
         $input = $request->isJson() ? $request->json()->all() : $request->all();
         $canonical = $this->sortKeys($input);
 
+        $params = $request->route()?->originalParameters() ?? [];
+        ksort($params);
+
         return hash('sha256', (string) json_encode(
-            $canonical === [] ? new \stdClass : $canonical,
+            ['params' => $params === [] ? new \stdClass : $params, 'body' => $canonical === [] ? new \stdClass : $canonical],
             JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE,
         ));
     }
