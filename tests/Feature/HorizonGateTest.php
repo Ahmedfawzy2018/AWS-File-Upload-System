@@ -33,3 +33,11 @@ it('configures the three supervisors', function () {
         ->and($d['maintenance'])->toMatchArray(['queue' => ['maintenance'], 'minProcesses' => 1, 'maxProcesses' => 2])
         ->and($d['default'])->toMatchArray(['queue' => ['default'], 'minProcesses' => 1, 'maxProcesses' => 3]);
 });
+
+it('keeps every Horizon supervisor timeout below the redis retry_after', function () {
+    $retryAfter = (int) config('queue.connections.redis.retry_after');
+
+    foreach (config('horizon.defaults') as $name => $supervisor) {
+        expect($supervisor['timeout'])->toBeLessThan($retryAfter, "supervisor {$name}");
+    }
+});
