@@ -5,6 +5,7 @@ use App\Http\Middleware\AssignRequestId;
 use App\Http\Middleware\EnsureIdempotency;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -48,6 +49,8 @@ return Application::configure(basePath: dirname(__DIR__))
                 $e instanceof DomainError => $envelope($e->errorCode(), $e->getMessage(), $e->httpStatus(), $e->details()),
                 $e instanceof ValidationException => $envelope('VALIDATION_FAILED', $e->getMessage(), 422, $e->errors()),
                 $e instanceof AuthenticationException => $envelope('UNAUTHENTICATED', 'Unauthenticated.', 401),
+                // Another request holds the per-file lock (concurrent /complete or /abort); retry later.
+                $e instanceof LockTimeoutException => $envelope('INVALID_STATE', 'Request in progress', 409),
                 $e instanceof AuthorizationException,
                 $e instanceof AccessDeniedHttpException,
                 $e instanceof ModelNotFoundException,

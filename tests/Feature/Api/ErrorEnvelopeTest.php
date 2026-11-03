@@ -3,6 +3,7 @@
 declare(strict_types=1);
 use App\Domain\Files\Exceptions\DomainError;
 use App\Models\User;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 use Monolog\Handler\TestHandler;
@@ -66,6 +67,13 @@ it('renders rate limiting as 429 envelope', function () {
     Route::get('/api/limited', fn () => 'ok')->middleware('throttle:1,1');
     $this->getJson('/api/limited');
     $this->getJson('/api/limited')->assertStatus(429)->assertJsonPath('error.code', 'RATE_LIMITED');
+});
+
+it('maps a lock timeout to 409 INVALID_STATE', function () {
+    Route::post('/api/locked', fn () => throw new LockTimeoutException);
+    $this->postJson('/api/locked')->assertStatus(409)
+        ->assertJsonPath('error.code', 'INVALID_STATE')
+        ->assertJsonPath('error.message', 'Request in progress');
 });
 
 it('maps policy/gate denial to 404 NOT_FOUND', function () {
