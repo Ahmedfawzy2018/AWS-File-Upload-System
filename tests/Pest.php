@@ -5,9 +5,12 @@ use App\Domain\Files\Rules\UploadRules;
 use App\Domain\Files\ValueObjects\MimeType;
 use App\Domain\Files\ValueObjects\ObjectKey;
 use App\Infrastructure\Storage\S3StorageGateway;
+use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
+use Laravel\Sanctum\Sanctum;
+use Tests\Support\FakeStorageGateway;
 use Tests\TestCase;
 
 /*
@@ -23,6 +26,9 @@ use Tests\TestCase;
 
 pest()->extend(TestCase::class)
     ->use(RefreshDatabase::class)
+    ->beforeEach(function (): void {
+        app()->singleton(StorageGateway::class, FakeStorageGateway::class);
+    })
     ->in('Feature');
 
 /*
@@ -55,4 +61,26 @@ function gateway(): StorageGateway
 function uniqueKey(): ObjectKey
 {
     return ObjectKey::generate('users/test', 1, (string) Str::ulid(), MimeType::fromString('text/plain'), CarbonImmutable::now());
+}
+
+function actingAsUser(): User
+{
+    $user = User::factory()->create();
+    Sanctum::actingAs($user);
+
+    return $user;
+}
+
+/** @return array{filename: string, mime_type: string, size_bytes: int} */
+function payload(int $size = 1024, string $mime = 'image/png'): array
+{
+    return ['filename' => 'a.png', 'mime_type' => $mime, 'size_bytes' => $size];
+}
+
+function fakeS3(): FakeStorageGateway
+{
+    $s3 = app(StorageGateway::class);
+    assert($s3 instanceof FakeStorageGateway);
+
+    return $s3;
 }
