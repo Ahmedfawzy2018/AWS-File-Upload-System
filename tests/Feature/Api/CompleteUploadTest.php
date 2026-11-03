@@ -1,7 +1,11 @@
 <?php
 
+use App\Domain\Files\Actions\AbortUpload;
+use App\Domain\Files\Actions\CompleteUpload;
+use App\Domain\Files\DTOs\CompleteUploadData;
 use App\Domain\Files\Enums\FileStatus;
 use App\Domain\Files\Exceptions\InvalidParts;
+use App\Domain\Files\Exceptions\InvalidState;
 use App\Jobs\VerifyUploadJob;
 use App\Models\File;
 use Illuminate\Support\Facades\Queue;
@@ -155,4 +159,32 @@ it('does not call S3 complete twice', function () {
     $this->postJson("/api/v1/uploads/{$file->id}/complete", $body)->assertStatus(202);
 
     expect(fakeS3()->completedUploads())->toHaveCount(1);
+});
+
+it('accepts parts in any order and sends them to S3 ascending', function () {
+    Queue::fake();
+    $user = actingAsUser();
+    $file = ownMultipartFile($user, 3);
+
+    $this->postJson("/api/v1/uploads/{$file->id}/complete", partsBody([3 => 'e3', 1 => 'e1', 2 => 'e2']))
+        ->assertStatus(202);
+
+    expect(array_keys(fakeS3()->completedParts($file->multipart_upload_id)))->toBe([1, 2, 3]);
+});
+
+it('does not call S3 when the file was aborted after the pre-lock status check', function () {
+    Queue::fake();
+    $user = actingAsUser();
+    $file = ownMultipartFile($user, 3);
+
+    $stale = File::findOrFail($file->id); // still pending in memory
+    app(AbortUpload::class)->handle($file);
+
+    $parts = [1 => 'e1', 2 => 'e2', 3 => 'e3'];
+    expect(fn () => app(CompleteUpload::class)
+        ->handle(new CompleteUploadData($stale, $parts)))
+        ->toThrow(InvalidState::class);
+
+    expect(fakeS3()->completedUploads())->toBe([]);
+    Queue::assertNothingPushed();
 });

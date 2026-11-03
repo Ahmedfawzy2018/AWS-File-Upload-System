@@ -66,6 +66,7 @@ final class S3StorageGateway implements StorageGateway
 
     public function completeMultipart(ObjectKey $key, string $uploadId, array $parts): void
     {
+        ksort($parts); // S3 requires ascending PartNumber
         $list = [];
         foreach ($parts as $number => $etag) {
             $list[] = ['PartNumber' => $number, 'ETag' => $etag];

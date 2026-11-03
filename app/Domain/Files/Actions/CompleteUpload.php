@@ -50,6 +50,9 @@ final class CompleteUpload
 
         Cache::lock("files:{$file->id}:complete", 30)->block(10, function () use ($file, $parts): void {
             $file->refresh();
+            if ($file->status !== FileStatus::Pending) {
+                throw new InvalidState($file->status, 'complete');
+            }
             if ($file->multipart_completed_at !== null) {
                 return;
             }

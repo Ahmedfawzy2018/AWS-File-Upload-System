@@ -31,6 +31,9 @@ final class FakeStorageGateway implements StorageGateway
     /** @var list<string> */
     private array $completed = [];
 
+    /** @var array<string, array<int, string>> upload id => parts in the order sent to S3 */
+    private array $completedParts = [];
+
     /** @var array<string, int> */
     private array $multipartSizes = [];
 
@@ -65,6 +68,12 @@ final class FakeStorageGateway implements StorageGateway
     public function completedUploads(): array
     {
         return $this->completed;
+    }
+
+    /** @return array<int, string> parts (ascending, like the real adapter) sent for the upload */
+    public function completedParts(string $uploadId): array
+    {
+        return $this->completedParts[$uploadId] ?? [];
     }
 
     /** One-shot: the next completeMultipart call throws $e, later calls succeed. */
@@ -125,6 +134,8 @@ final class FakeStorageGateway implements StorageGateway
         $type = $existing['type'] ?? $this->multiparts[$uploadId]['type'];
         unset($this->multiparts[$uploadId], $this->multipartSizes[$uploadId]);
         $this->completed[] = $uploadId;
+        ksort($parts); // mirror the real adapter, which sends ascending PartNumber
+        $this->completedParts[$uploadId] = $parts;
         $this->putObject($key->value(), $size, $type, $existing['versionId'] ?? 'v1');
     }
 
