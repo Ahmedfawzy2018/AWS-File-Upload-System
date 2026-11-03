@@ -28,8 +28,13 @@ class S3EventConsumer
                 VerifyUploadJob::dispatch($file->id);
                 break;
             case FileStatus::Expired:
-                // Late upload after cleanup: remove the object for good; quota was already released.
-                Log::info('s3_event.late_upload_deleted', ['file_id' => $file->id]);
+            case FileStatus::Rejected:
+            case FileStatus::Deleted:
+                // An object for a file that can never become ready (late PUT after abort/expiry/delete,
+                // or a re-PUT once the earlier version is gone): remove the new current version for good.
+                // Quota was already released. For a deleted ready file only the new version goes; the
+                // noncurrent recovery copy of the original stays until the lifecycle rule purges it.
+                Log::info('s3_event.orphan_object_deleted', ['file_id' => $file->id, 'status' => $file->status->value]);
                 DeleteObjectJob::dispatch($objectKey, true);
                 break;
             default:

@@ -12,6 +12,7 @@ use Illuminate\Support\Collection;
 
 interface FileRepository
 {
+    /** Includes soft-deleted files. */
     public function findByObjectKey(string $key): ?File;
 
     /**

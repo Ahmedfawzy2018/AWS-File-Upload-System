@@ -14,6 +14,13 @@ it('finds a file by object key', function () {
     expect(app(FileRepository::class)->findByObjectKey('nope'))->toBeNull();
 });
 
+it('finds soft-deleted files by object key', function () {
+    $file = File::factory()->create(['status' => FileStatus::Deleted]);
+    $file->delete();
+
+    expect(app(FileRepository::class)->findByObjectKey($file->object_key)?->id)->toBe($file->id);
+});
+
 it('finds stale pending files only', function () {
     $stale = File::factory()->expired()->create();
     File::factory()->pending()->create(['expires_at' => now()->addHour()]);

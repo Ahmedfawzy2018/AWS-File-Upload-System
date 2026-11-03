@@ -68,6 +68,55 @@ it('permanently deletes objects that arrive after expiry without touching quota'
     expect(usageOf($file->user_id))->toEqual($before);
 });
 
+it('permanently deletes objects that arrive for soft-deleted or rejected files', function (FileStatus $status, bool $trashed) {
+    Queue::fake();
+    $file = File::factory()->create(['status' => $status]);
+    if ($trashed) {
+        $file->delete();
+    }
+
+    app(S3EventConsumer::class)->handleKey($file->object_key);
+
+    Queue::assertPushed(DeleteObjectJob::class, fn ($j) => $j->objectKey === $file->object_key && $j->permanent === true);
+    Queue::assertNotPushed(VerifyUploadJob::class);
+})->with([
+    'soft-deleted expired' => [FileStatus::Expired, true],
+    'soft-deleted deleted' => [FileStatus::Deleted, true],
+    'rejected' => [FileStatus::Rejected, false],
+]);
+
+it('exploit path A: reserve, abort, delete, then PUT with the still-valid URL leaves no object and no quota', function () {
+    $user = actingAsUser();
+    $id = $this->postJson('/api/v1/uploads', payload(5, 'text/plain'))->assertCreated()->json('id');
+    $this->postJson("/api/v1/uploads/{$id}/abort")->assertOk();
+    $this->deleteJson("/api/v1/files/{$id}")->assertNoContent();
+    $key = File::withTrashed()->findOrFail($id)->object_key;
+
+    fakeS3()->putObject($key, 5, 'text/plain', 'v-late');
+    app(S3EventConsumer::class)->handleKey($key);
+
+    expect(fakeS3()->objects())->not->toHaveKey($key)
+        ->and(fakeS3()->deletedVersions())->toContain([$key, 'v-late'])
+        ->and(usageOf($user->id))->usedBytes->toBe(0)->reservedBytes->toBe(0);
+});
+
+it('exploit path B: delete a ready file, then re-PUT with the same URL removes only the new version', function () {
+    $user = actingAsUser();
+    $id = $this->postJson('/api/v1/uploads', payload(5, 'text/plain'))->assertCreated()->json('id');
+    $key = File::findOrFail($id)->object_key;
+    fakeS3()->putObject($key, 5, 'text/plain', 'v1');
+    $this->postJson("/api/v1/uploads/{$id}/complete")->assertStatus(202);
+    expect(File::findOrFail($id)->status)->toBe(FileStatus::Ready);
+    $this->deleteJson("/api/v1/files/{$id}")->assertNoContent();
+
+    fakeS3()->putObject($key, 5, 'text/plain', 'v2');
+    app(S3EventConsumer::class)->handleKey($key);
+
+    expect(fakeS3()->objects())->not->toHaveKey($key)
+        ->and(fakeS3()->deletedVersions())->toBe([[$key, 'v2']])
+        ->and(usageOf($user->id))->usedBytes->toBe(0)->reservedBytes->toBe(0);
+});
+
 it('logs and ignores unexpected events for ready files', function () {
     Queue::fake();
     Log::spy();

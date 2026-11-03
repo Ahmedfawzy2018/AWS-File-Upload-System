@@ -15,7 +15,8 @@ final class EloquentFileRepository implements FileRepository
 {
     public function findByObjectKey(string $key): ?File
     {
-        return File::query()->where('object_key', $key)->first();
+        // Soft-deleted rows included: S3 events for deleted files must still be resolvable.
+        return File::query()->withTrashed()->where('object_key', $key)->first();
     }
 
     public function stalePending(CarbonImmutable $cutoff, int $limit): Collection
