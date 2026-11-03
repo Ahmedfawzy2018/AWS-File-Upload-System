@@ -13,6 +13,7 @@ use App\Domain\Files\ValueObjects\FileSize;
 use App\Domain\Files\ValueObjects\MimeType;
 use App\Domain\Files\ValueObjects\ObjectKey;
 use Carbon\CarbonImmutable;
+use Illuminate\Support\Facades\DB;
 
 final class FakeStorageGateway implements StorageGateway
 {
@@ -43,6 +44,15 @@ final class FakeStorageGateway implements StorageGateway
     private $afterHead = null;
 
     private int $uploadSeq = 0;
+
+    /** @var list<int> DB transaction level at each createMultipart call */
+    private array $createMultipartLevels = [];
+
+    /** @return list<int> */
+    public function createMultipartTransactionLevels(): array
+    {
+        return $this->createMultipartLevels;
+    }
 
     public function putObject(string $key, int $size, string $type, ?string $versionId = 'v1'): void
     {
@@ -113,6 +123,7 @@ final class FakeStorageGateway implements StorageGateway
 
     public function createMultipart(ObjectKey $key, MimeType $type): string
     {
+        $this->createMultipartLevels[] = DB::transactionLevel();
         $id = 'fake-upload-'.++$this->uploadSeq;
         $this->multiparts[$id] = ['key' => $key->value(), 'type' => $type->value()];
 

@@ -35,6 +35,13 @@ return [
     'idempotency_ttl' => (int) env('UPLOADS_IDEMPOTENCY_TTL', 86400),
     'cleanup_grace_seconds' => (int) env('UPLOADS_CLEANUP_GRACE_SECONDS', 900),
 
+    // Guzzle defaults to no timeout at all; a hung S3/SQS call would stall the request or worker.
+    // Keep the request timeout above the SQS long-poll wait (20 s).
+    'aws_http' => [
+        'connect_timeout' => (float) env('AWS_HTTP_CONNECT_TIMEOUT', 3),
+        'timeout' => (float) env('AWS_HTTP_TIMEOUT', 30),
+    ],
+
     'key_prefix' => env('UPLOADS_KEY_PREFIX', 'users'),
     'bucket' => env('AWS_BUCKET'),
     's3_events_queue_url' => env('S3_EVENTS_QUEUE_URL'),

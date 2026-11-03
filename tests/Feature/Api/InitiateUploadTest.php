@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Domain\Files\Services\QuotaLedger;
 use App\Models\File;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
 
 function errorCode(TestResponse $r): string
@@ -39,6 +40,26 @@ it('returns the Content-Length each part URL is signed for', function () {
         ->and($parts[0])->toBe(['part_number' => 1, 'url' => $parts[0]['url'], 'headers' => ['Content-Length' => '16777216']])
         ->and($parts[1]['headers'])->toBe(['Content-Length' => '16777216'])
         ->and($parts[2]['headers'])->toBe(['Content-Length' => '7']);
+});
+
+it('creates the multipart upload outside the quota transaction', function () {
+    actingAsUser();
+    $level = DB::transactionLevel();
+
+    $this->postJson('/api/v1/uploads', payload(size: 104857601))->assertCreated();
+
+    expect(fakeS3()->createMultipartTransactionLevels())->toBe([$level]);
+});
+
+it('aborts the multipart upload when the quota reservation fails', function () {
+    $user = actingAsUser();
+    config(['uploads.default_quota_bytes' => 104857600]);
+
+    $this->postJson('/api/v1/uploads', payload(size: 104857601))->assertStatus(409)->assertJsonPath('error.code', 'QUOTA_EXCEEDED');
+
+    expect(fakeS3()->aborted())->toBe(['fake-upload-1'])
+        ->and(File::count())->toBe(0)
+        ->and(usageOf($user->id)->reservedBytes)->toBe(0);
 });
 
 it('stores a multipart upload id and 1h expiry', function () {

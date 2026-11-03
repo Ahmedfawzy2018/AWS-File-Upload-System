@@ -41,6 +41,10 @@ class FilesServiceProvider extends ServiceProvider
             'region' => $disk['region'],
             'endpoint' => $disk['endpoint'] ?: null,
             'use_path_style_endpoint' => (bool) $disk['use_path_style_endpoint'],
+            'http' => [
+                'connect_timeout' => config('uploads.aws_http.connect_timeout'),
+                'timeout' => config('uploads.aws_http.timeout'),
+            ],
         ];
         // Without static keys (production task role) the SDK default provider chain applies.
         if (! empty($disk['key']) && ! empty($disk['secret'])) {
