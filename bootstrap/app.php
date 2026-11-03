@@ -12,6 +12,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Exceptions\ThrottleRequestsException;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\Response as HttpResponse;
+use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Symfony\Component\HttpKernel\Exception\TooManyRequestsHttpException;
@@ -45,10 +47,16 @@ return Application::configure(basePath: dirname(__DIR__))
                 $e instanceof ValidationException => $envelope('VALIDATION_FAILED', $e->getMessage(), 422, $e->errors()),
                 $e instanceof AuthenticationException => $envelope('UNAUTHENTICATED', 'Unauthenticated.', 401),
                 $e instanceof AuthorizationException,
+                $e instanceof AccessDeniedHttpException,
                 $e instanceof ModelNotFoundException,
                 $e instanceof NotFoundHttpException => $envelope('NOT_FOUND', 'Not found.', 404),
                 $e instanceof ThrottleRequestsException,
                 $e instanceof TooManyRequestsHttpException => $envelope('RATE_LIMITED', 'Too many requests.', 429),
+                $e instanceof HttpExceptionInterface && $e->getStatusCode() < 500 => $envelope(
+                    'HTTP_ERROR',
+                    HttpResponse::$statusTexts[$e->getStatusCode()] ?? 'Client error',
+                    $e->getStatusCode(),
+                ),
                 default => $envelope(
                     'SERVER_ERROR',
                     config('app.debug') ? $e->getMessage() : 'Server error',

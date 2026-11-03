@@ -2,6 +2,10 @@
 
 declare(strict_types=1);
 use App\Domain\Files\Exceptions\DomainError;
+use App\Models\User;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
+use Monolog\Handler\TestHandler;
 
 it('renders validation errors in the envelope', function () {
     $this->postJson('/api/v1/auth/tokens', [])->assertStatus(422)
@@ -62,4 +66,43 @@ it('renders rate limiting as 429 envelope', function () {
     Route::get('/api/limited', fn () => 'ok')->middleware('throttle:1,1');
     $this->getJson('/api/limited');
     $this->getJson('/api/limited')->assertStatus(429)->assertJsonPath('error.code', 'RATE_LIMITED');
+});
+
+it('maps policy/gate denial to 404 NOT_FOUND', function () {
+    Gate::define('nope', fn () => false);
+    Route::get('/api/denied', function () {
+        Gate::authorize('nope');
+    });
+    $this->getJson('/api/denied')->assertStatus(404)->assertJsonPath('error.code', 'NOT_FOUND');
+});
+
+it('maps ModelNotFoundException to 404 NOT_FOUND', function () {
+    Route::get('/api/missing', fn () => User::findOrFail(999999));
+    $this->getJson('/api/missing')->assertStatus(404)->assertJsonPath('error.code', 'NOT_FOUND');
+});
+
+it('renders 405 as HTTP_ERROR with its status text', function () {
+    Route::get('/api/getonly', fn () => 'ok');
+    $this->postJson('/api/getonly')->assertStatus(405)
+        ->assertJsonPath('error.code', 'HTTP_ERROR')
+        ->assertJsonPath('error.message', 'Method Not Allowed');
+});
+
+it('puts the request id into log context', function () {
+    config([
+        'logging.default' => 'capture',
+        'logging.channels.capture' => ['driver' => 'monolog', 'handler' => TestHandler::class],
+    ]);
+    Route::get('/api/logme', function () {
+        Log::info('hello');
+
+        return 'ok';
+    });
+    $this->getJson('/api/logme', ['X-Request-Id' => 'req-42'])->assertOk();
+
+    /** @var TestHandler $handler */
+    $handler = Log::channel('capture')->getLogger()->getHandlers()[0];
+    $record = collect($handler->getRecords())->first(fn ($r) => $r->message === 'hello');
+    expect($record)->not->toBeNull();
+    expect($record->extra['request_id'] ?? $record->context['request_id'] ?? null)->toBe('req-42');
 });
