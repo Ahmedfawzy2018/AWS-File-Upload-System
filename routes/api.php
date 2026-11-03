@@ -1,8 +1,17 @@
 <?php
 
-use Illuminate\Http\Request;
+declare(strict_types=1);
+
+use App\Http\Controllers\Api\V1\TokenController;
 use Illuminate\Support\Facades\Route;
 
-Route::get('/user', function (Request $request) {
-    return $request->user();
-})->middleware('auth:sanctum');
+Route::prefix('v1')->group(function (): void {
+    Route::post('auth/tokens', [TokenController::class, 'store'])->middleware('throttle:6,1');
+
+    Route::middleware(['auth:sanctum', 'throttle:api'])->group(function (): void {
+        Route::delete('auth/tokens/current', [TokenController::class, 'destroy']);
+
+        // Placeholder; replaced in Task 11.
+        Route::get('me/usage', fn () => response()->json(['error' => ['code' => 'NOT_IMPLEMENTED', 'message' => 'Not implemented', 'details' => (object) []]], 501));
+    });
+});
