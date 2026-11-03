@@ -50,7 +50,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 $e instanceof ValidationException => $envelope('VALIDATION_FAILED', $e->getMessage(), 422, $e->errors()),
                 $e instanceof AuthenticationException => $envelope('UNAUTHENTICATED', 'Unauthenticated.', 401),
                 // Another request holds the per-file lock (concurrent /complete or /abort); retry later.
-                $e instanceof LockTimeoutException => $envelope('INVALID_STATE', 'Request in progress', 409),
+                $e instanceof LockTimeoutException => $envelope('INVALID_STATE', 'Request in progress.', 409),
                 $e instanceof AuthorizationException,
                 $e instanceof AccessDeniedHttpException,
                 $e instanceof ModelNotFoundException,

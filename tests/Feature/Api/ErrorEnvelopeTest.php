@@ -76,7 +76,7 @@ it('maps a lock timeout to 409 INVALID_STATE', function () {
     Route::post('/api/locked', fn () => throw new LockTimeoutException);
     $this->postJson('/api/locked')->assertStatus(409)
         ->assertJsonPath('error.code', 'INVALID_STATE')
-        ->assertJsonPath('error.message', 'Request in progress');
+        ->assertJsonPath('error.message', 'Request in progress.');
 });
 
 it('maps policy/gate denial to 404 NOT_FOUND', function () {
