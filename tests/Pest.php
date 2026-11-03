@@ -1,5 +1,6 @@
 <?php
 
+use App\Domain\Files\Rules\UploadRules;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -28,3 +29,14 @@ pest()->extend(TestCase::class)
 | global functions to help you to reduce the number of lines of code in your test files.
 |
 */
+
+pest()->extend(TestCase::class)->in('Unit/Domain');
+
+function rules(): UploadRules
+{
+    return new UploadRules(
+        config('uploads.allowed_mime_types'),
+        config('uploads.max_size_bytes'),
+        config('uploads.multipart_threshold_bytes'),
+    );
+}
