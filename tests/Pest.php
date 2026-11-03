@@ -1,7 +1,13 @@
 <?php
 
+use App\Domain\Files\Contracts\StorageGateway;
 use App\Domain\Files\Rules\UploadRules;
+use App\Domain\Files\ValueObjects\MimeType;
+use App\Domain\Files\ValueObjects\ObjectKey;
+use App\Infrastructure\Storage\S3StorageGateway;
+use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /*
@@ -30,7 +36,7 @@ pest()->extend(TestCase::class)
 |
 */
 
-pest()->extend(TestCase::class)->in('Unit/Domain');
+pest()->extend(TestCase::class)->in('Unit/Domain', 'Integration');
 
 function rules(): UploadRules
 {
@@ -39,4 +45,14 @@ function rules(): UploadRules
         config('uploads.max_size_bytes'),
         config('uploads.multipart_threshold_bytes'),
     );
+}
+
+function gateway(): StorageGateway
+{
+    return app(S3StorageGateway::class);
+}
+
+function uniqueKey(): ObjectKey
+{
+    return ObjectKey::generate('users/test', 1, (string) Str::ulid(), MimeType::fromString('text/plain'), CarbonImmutable::now());
 }

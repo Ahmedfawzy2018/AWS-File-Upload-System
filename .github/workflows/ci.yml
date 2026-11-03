@@ -57,6 +57,6 @@ jobs:
 
       - run: vendor/bin/pint --test
 
-      - run: vendor/bin/phpstan analyse --no-progress
+      - run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
 
       - run: php artisan test --exclude-group=integration

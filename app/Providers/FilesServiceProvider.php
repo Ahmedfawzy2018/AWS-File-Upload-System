@@ -3,9 +3,12 @@
 namespace App\Providers;
 
 use App\Domain\Files\Contracts\FileRepository;
+use App\Domain\Files\Contracts\StorageGateway;
 use App\Domain\Files\Rules\UploadRules;
 use App\Domain\Files\Services\QuotaLedger;
 use App\Infrastructure\Persistence\EloquentFileRepository;
+use App\Infrastructure\Storage\S3StorageGateway;
+use Aws\S3\S3Client;
 use Illuminate\Support\ServiceProvider;
 
 class FilesServiceProvider extends ServiceProvider
@@ -21,5 +24,18 @@ class FilesServiceProvider extends ServiceProvider
         ));
 
         $this->app->bind(QuotaLedger::class, fn () => new QuotaLedger((int) config('uploads.default_quota_bytes')));
+
+        $this->app->bind(S3StorageGateway::class, function () {
+            $disk = config('filesystems.disks.s3');
+
+            return new S3StorageGateway(new S3Client([
+                'version' => 'latest',
+                'region' => $disk['region'],
+                'endpoint' => $disk['endpoint'] ?: null,
+                'use_path_style_endpoint' => (bool) $disk['use_path_style_endpoint'],
+                'credentials' => ['key' => $disk['key'], 'secret' => $disk['secret']],
+            ]), (string) config('uploads.bucket'));
+        });
+        $this->app->bind(StorageGateway::class, S3StorageGateway::class);
     }
 }
