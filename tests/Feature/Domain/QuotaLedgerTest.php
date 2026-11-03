@@ -79,3 +79,10 @@ it('reports default usage without inserting a row', function () {
     expect(app(QuotaLedger::class)->usage($u->id))->toEqual(new StorageUsage(0, 0, 100));
     $this->assertDatabaseMissing('user_storage_usage', ['user_id' => $u->id]);
 });
+
+it('rejects non-positive byte amounts', function (string $method, int $bytes) {
+    $u = User::factory()->create();
+
+    expect(fn () => app(QuotaLedger::class)->{$method}($u->id, $bytes))
+        ->toThrow(InvalidArgumentException::class);
+})->with(['reserve', 'commit', 'release', 'releaseUsed'])->with([0, -5]);

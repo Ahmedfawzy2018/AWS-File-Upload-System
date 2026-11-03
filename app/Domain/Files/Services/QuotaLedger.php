@@ -20,6 +20,8 @@ final class QuotaLedger
 
     public function reserve(int $userId, int $bytes): void
     {
+        $this->assertPositive($bytes);
+
         DB::table(self::TABLE)->insertOrIgnore([
             'user_id' => $userId,
             'used_bytes' => 0,
@@ -43,6 +45,8 @@ final class QuotaLedger
 
     public function commit(int $userId, int $bytes): void
     {
+        $this->assertPositive($bytes);
+
         DB::update(
             'UPDATE user_storage_usage SET reserved_bytes = GREATEST(CAST(reserved_bytes AS SIGNED) - ?, 0), '
             .'used_bytes = used_bytes + ?, updated_at = ? WHERE user_id = ?',
@@ -52,6 +56,8 @@ final class QuotaLedger
 
     public function release(int $userId, int $bytes): void
     {
+        $this->assertPositive($bytes);
+
         DB::update(
             'UPDATE user_storage_usage SET reserved_bytes = GREATEST(CAST(reserved_bytes AS SIGNED) - ?, 0), updated_at = ? WHERE user_id = ?',
             [$bytes, now(), $userId],
@@ -60,6 +66,8 @@ final class QuotaLedger
 
     public function releaseUsed(int $userId, int $bytes): void
     {
+        $this->assertPositive($bytes);
+
         DB::update(
             'UPDATE user_storage_usage SET used_bytes = GREATEST(CAST(used_bytes AS SIGNED) - ?, 0), updated_at = ? WHERE user_id = ?',
             [$bytes, now(), $userId],
@@ -75,5 +83,12 @@ final class QuotaLedger
         }
 
         return new StorageUsage((int) $row->used_bytes, (int) $row->reserved_bytes, (int) $row->quota_bytes);
+    }
+
+    private function assertPositive(int $bytes): void
+    {
+        if ($bytes < 1) {
+            throw new \InvalidArgumentException('Bytes must be at least 1, got '.$bytes.'.');
+        }
     }
 }
