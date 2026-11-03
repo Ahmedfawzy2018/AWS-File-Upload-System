@@ -41,7 +41,7 @@ docker compose exec app php artisan users:create you@example.com --name="You" --
 docker compose --profile workers up -d
 ```
 
-The API is served by nginx on `http://localhost:8080` (override with `NGINX_PORT=8081 docker compose up -d`). The commands below assume `NGINX_PORT=8081`. Horizon's dashboard is at `/horizon` (any user in `APP_ENV=local`; elsewhere only emails in `HORIZON_ALLOWED_EMAILS`, comma-separated). Liveness: `GET /health`; readiness (DB + Redis): `GET /health/ready`.
+The API is served by nginx on `http://localhost:8080` (override with `NGINX_PORT=8081 docker compose up -d`). The commands below assume `NGINX_PORT=8081`. Horizon's dashboard is at `/horizon` and is available in `APP_ENV=local` only in v1. In other environments it stays closed: the app has no web/session login, so the `viewHorizon` gate sees no user. `HORIZON_ALLOWED_EMAILS` (comma-separated) takes effect only once a web/session auth guard is added. Liveness: `GET /health`; readiness (DB + Redis): `GET /health/ready`.
 
 `php`, `composer` and `vendor/bin/*` commands run inside the `app` container (`docker compose exec app ...`).
 
@@ -170,7 +170,7 @@ Integration tests need `docker compose up -d` (LocalStack with the `uploads-loca
 - **Notifications**: S3 event `s3:ObjectCreated:*` with key prefix `users/` to an SQS queue. Attach a dead-letter queue with `maxReceiveCount` 5, and allow `s3.amazonaws.com` to `sqs:SendMessage` on the queue. Set `S3_EVENTS_QUEUE_URL`.
 - **Lifecycle rules**: abort incomplete multipart uploads after 2 days; expire noncurrent versions after 7 days (this is the recovery window for user deletes); remove expired delete markers.
 - **No static keys**: use the ECS/EKS task role. Leave `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` and `AWS_ENDPOINT` unset; `AWS_USE_PATH_STYLE_ENDPOINT=false`; set `AWS_BUCKET` and `AWS_DEFAULT_REGION`. Inject secrets from Secrets Manager.
-- **Processes**: run N stateless API containers, `php artisan horizon` (scale separately), one `uploads:consume-s3-events` consumer (or more), and `php artisan schedule:work`/cron `schedule:run` (cleanup runs every 5 minutes). Set `HORIZON_ALLOWED_EMAILS` for dashboard access.
+- **Processes**: run N stateless API containers, `php artisan horizon` (scale separately), one `uploads:consume-s3-events` consumer (or more), and `php artisan schedule:work`/cron `schedule:run` (cleanup runs every 5 minutes). The Horizon dashboard is closed outside `local` (no web auth guard in v1; `HORIZON_ALLOWED_EMAILS` only matters once one exists). Monitor with `php artisan horizon:status`, `php artisan horizon:supervisors` and the JSON logs.
 
 ## Known limitations / verify on real AWS
 
