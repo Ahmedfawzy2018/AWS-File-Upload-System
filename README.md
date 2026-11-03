@@ -37,8 +37,9 @@ docker compose exec app php artisan key:generate
 docker compose exec app php artisan migrate
 docker compose exec app php artisan users:create you@example.com --name="You" --password=secret123
 
-# long-running workers (S3 event consumer, scheduler, Horizon) are opt-in:
-docker compose --profile workers up -d
+# long-running workers (S3 event consumer, scheduler, Horizon) are opt-in; pass the same
+# NGINX_PORT you started with, or compose recreates nginx on the default port:
+NGINX_PORT=8081 docker compose --profile workers up -d
 ```
 
 The API is served by nginx on `http://localhost:8080` (override with `NGINX_PORT=8081 docker compose up -d`). The commands below assume `NGINX_PORT=8081`. Horizon's dashboard is at `/horizon` and is available in `APP_ENV=local` only in v1. In other environments it stays closed: the app has no web/session login, so the `viewHorizon` gate sees no user. `HORIZON_ALLOWED_EMAILS` (comma-separated) takes effect only once a web/session auth guard is added. Liveness: `GET /health`; readiness (DB + Redis): `GET /health/ready`.
@@ -55,7 +56,7 @@ All endpoints are under `/api/v1` and need `Authorization: Bearer <token>` excep
 | DELETE | `/auth/tokens/current` | Revoke the current token |
 | POST | `/uploads` | Initiate an upload (single or multipart); optional `Idempotency-Key` header |
 | POST | `/uploads/{id}/parts` | Re-sign multipart part URLs (`part_numbers`) |
-| POST | `/uploads/{id}/complete` | Confirm the upload (`parts` for multipart); returns `202` |
+| POST | `/uploads/{id}/complete` | Confirm the upload (`parts` for multipart); returns `202`; optional `Idempotency-Key` header |
 | POST | `/uploads/{id}/abort` | Abort a pending upload |
 | GET | `/files` | List own files (cursor pagination) |
 | GET | `/files/{id}` | File metadata |
@@ -63,7 +64,25 @@ All endpoints are under `/api/v1` and need `Authorization: Bearer <token>` excep
 | DELETE | `/files/{id}` | Soft delete; object removal runs in a queued job |
 | GET | `/me/usage` | `{used_bytes, reserved_bytes, quota_bytes}` |
 
-Errors share one shape: `{"error":{"code":"...","message":"...","details":{}}}`. Codes: `VALIDATION_FAILED`, `UNSUPPORTED_MEDIA_TYPE`, `FILE_TOO_LARGE`, `CHECKSUM_NOT_SUPPORTED`, `INVALID_PARTS`, `IDEMPOTENCY_KEY_REUSED` (422), `QUOTA_EXCEEDED`, `INVALID_STATE` (409), `NOT_FOUND` (404, also for other users' files), `UNAUTHENTICATED` (401), `RATE_LIMITED` (429).
+A repeat of `POST /uploads` or `/complete` with the same `Idempotency-Key` from the same user within 24 h returns the stored original response; reusing a key with a different body returns `422 IDEMPOTENCY_KEY_REUSED`.
+
+Errors share one shape: `{"error":{"code":"...","message":"...","details":{}}}`.
+
+| Code | HTTP status | When |
+|---|---|---|
+| `VALIDATION_FAILED` | 422 | Request body fails validation (`details` lists the fields) |
+| `UNSUPPORTED_MEDIA_TYPE` | 422 | MIME type not on the allow list |
+| `FILE_TOO_LARGE` | 422 | Size above the max file size |
+| `CHECKSUM_NOT_SUPPORTED` | 422 | `checksum_sha256` given for a multipart upload |
+| `INVALID_PARTS` | 422 | Missing, duplicate, out-of-range or wrong-ETag parts |
+| `IDEMPOTENCY_KEY_REUSED` | 422 | Same `Idempotency-Key` sent with a different request |
+| `QUOTA_EXCEEDED` | 409 | `used + reserved + size` would exceed the quota |
+| `INVALID_STATE` | 409 | Action not allowed in the file's state, or `Request in progress.` when a concurrent request holds the file lock or the same `Idempotency-Key` (retry later) |
+| `NOT_FOUND` | 404 | Unknown route or file, including other users' files |
+| `UNAUTHENTICATED` | 401 | Missing, invalid or expired token |
+| `RATE_LIMITED` | 429 | Rate limit hit; `Retry-After` and `X-RateLimit-*` headers are kept |
+| `HTTP_ERROR` | the original 4xx | Any other client error, e.g. 405 (with `Allow`); the message is the status text |
+| `SERVER_ERROR` | 500 (or the original 5xx) | Unexpected failure; the message is `Server error` unless `APP_DEBUG=true` |
 
 ### Limits (all in `config/uploads.php`, env-overridable)
 
@@ -76,7 +95,7 @@ Errors share one shape: `{"error":{"code":"...","message":"...","details":{}}}`.
 | Single PUT / multipart / download URL TTL | 15 min / 60 min / 5 min | `UPLOADS_TTL_SINGLE_PUT`, `UPLOADS_TTL_MULTIPART`, `UPLOADS_TTL_DOWNLOAD` |
 | Rate limit: initiate / other | 60 / 300 per min | `UPLOADS_RATE_LIMIT_INITIATE`, `UPLOADS_RATE_LIMIT_DEFAULT` |
 | Idempotency window | 24 h | `UPLOADS_IDEMPOTENCY_TTL` |
-| API token lifetime (minutes) | 30 days | `SANCTUM_EXPIRATION` |
+| API token lifetime (`config/sanctum.php`, minutes; 0 = never) | 30 days | `SANCTUM_EXPIRATION` |
 | AWS SDK connect / request timeout | 3 s / 30 s | `AWS_HTTP_CONNECT_TIMEOUT`, `AWS_HTTP_TIMEOUT` |
 
 Allowed MIME types: `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `application/pdf`, `text/plain`, `text/csv`, `application/zip`, `video/mp4`, and Office docx/xlsx/pptx.
@@ -168,7 +187,7 @@ Integration tests need `docker compose up -d` (LocalStack with the `uploads-loca
 - **Bucket**: private, Block Public Access on, SSE-S3 default encryption (SSE-KMS optional), versioning on, CORS allowing `PUT` from your web origins and exposing the `ETag` header (browsers need it for multipart).
 - **IAM (app task role)**:
   - `s3:PutObject`, `s3:GetObject`, `s3:GetObjectVersion`, `s3:DeleteObject`, `s3:DeleteObjectVersion`, `s3:AbortMultipartUpload`, `s3:ListMultipartUploadParts` on `arn:aws:s3:::<bucket>/users/*` only.
-  - `s3:ListBucket` on `arn:aws:s3:::<bucket>` with condition `StringLike: {"s3:prefix": "users/*"}`, so a HEAD on a missing object returns 404 instead of 403.
+  - `s3:ListBucket` on `arn:aws:s3:::<bucket>` **without** an `s3:prefix` condition, so a HEAD on a missing object returns 404 instead of 403. HeadObject requests carry no `s3:prefix` key, so a `StringLike: {"s3:prefix": "users/*"}` condition never matches them: S3 would answer 403, the gateway would raise a storage error instead of "missing", single PUTs that were never uploaded could not be expired, and their reserved quota would leak.
   - `sqs:ReceiveMessage`, `sqs:DeleteMessage` on the events queue.
 - **Notifications**: S3 event `s3:ObjectCreated:*` with key prefix `users/` to an SQS queue. Attach a dead-letter queue with `maxReceiveCount` 5, and allow `s3.amazonaws.com` to `sqs:SendMessage` on the queue. Set `S3_EVENTS_QUEUE_URL`.
 - **Lifecycle rules**: abort incomplete multipart uploads after 2 days; expire noncurrent versions after 7 days (this is the recovery window for user deletes); remove expired delete markers.
@@ -177,6 +196,10 @@ Integration tests need `docker compose up -d` (LocalStack with the `uploads-loca
 
 ## Known limitations / verify on real AWS
 
-- Enforcement of the signed `Content-Length` and `If-None-Match: *` headers (403 on a mismatched Content-Type, 412 on overwrite) was verified against **LocalStack only**. Confirm both on a real bucket before relying on them, including conditional writes on multipart completion.
+- Signature and conditional-write enforcement was verified against **LocalStack only**. Release gate, on a real bucket with the documented IAM policy:
+  - a single PUT with a different `Content-Type` or `Content-Length` than signed is rejected (403);
+  - a part PUT whose body length differs from its signed `Content-Length` is rejected;
+  - a second PUT to a used single-PUT URL returns 412 (`If-None-Match: *`), and so does `CompleteMultipartUpload` onto an existing key;
+  - `HEAD` on a missing key returns 404, not 403 (see the `s3:ListBucket` note above; HeadObject carries no `s3:prefix`, so grant `s3:ListBucket` on the bucket without the prefix condition if you see 403).
 - Registration, SSO, admin roles, content sniffing / virus scanning, and a restore endpoint are out of scope for v1.
 - Versioning is a safety net for accidental deletes, not a user-facing feature.
