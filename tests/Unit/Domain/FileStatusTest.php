@@ -26,8 +26,8 @@ it('throws InvalidState on illegal transition', fn () => FileStatus::Ready->asse
     ->throws(InvalidState::class);
 
 it('does not throw on a legal transition', function () {
-    FileStatus::Pending->assertCanTransitionTo(FileStatus::Uploaded);
-    expect(true)->toBeTrue();
+    expect(fn () => FileStatus::Pending->assertCanTransitionTo(FileStatus::Uploaded))->not->toThrow(InvalidState::class)
+        ->and(FileStatus::Pending->canTransitionTo(FileStatus::Uploaded))->toBeTrue();
 });
 
 it('exposes invalid state error details', function () {

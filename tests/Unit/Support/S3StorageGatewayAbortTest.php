@@ -10,24 +10,29 @@ use Aws\Exception\AwsException;
 use Aws\S3\S3Client;
 use GuzzleHttp\Promise\Create;
 
-function abortGateway(string $awsCode): S3StorageGateway
+/** @param  list<string>  $sent  command names that reached the (fake) S3 handler */
+function abortGateway(string $awsCode, array &$sent = []): S3StorageGateway
 {
     $client = new S3Client([
         'region' => 'us-east-1',
         'version' => 'latest',
         'credentials' => ['key' => 'k', 'secret' => 's'],
-        'handler' => fn (CommandInterface $cmd) => Create::rejectionFor(
-            new AwsException($awsCode, $cmd, ['code' => $awsCode]),
-        ),
+        'handler' => function (CommandInterface $cmd) use ($awsCode, &$sent) {
+            $sent[] = $cmd->getName();
+
+            return Create::rejectionFor(new AwsException($awsCode, $cmd, ['code' => $awsCode]));
+        },
     ]);
 
     return new S3StorageGateway($client, 'bucket');
 }
 
 it('treats NoSuchUpload on abort as success', function () {
-    abortGateway('NoSuchUpload')->abortMultipart(ObjectKey::fromString('users/1/a.txt'), 'gone');
+    $sent = [];
+    $gateway = abortGateway('NoSuchUpload', $sent);
 
-    expect(true)->toBeTrue();
+    expect(fn () => $gateway->abortMultipart(ObjectKey::fromString('users/1/a.txt'), 'gone'))->not->toThrow(Throwable::class)
+        ->and($sent)->toBe(['AbortMultipartUpload']);
 });
 
 it('still throws StorageError on other abort failures', function () {

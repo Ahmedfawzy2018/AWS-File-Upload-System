@@ -1,6 +1,7 @@
 <?php
 
 use App\Domain\Files\Actions\VerifyUpload;
+use App\Domain\Files\Contracts\StorageGateway;
 use App\Domain\Files\Enums\FileStatus;
 use App\Domain\Files\Events\FileReady;
 use App\Domain\Files\Events\FileRejected;
@@ -104,9 +105,12 @@ it('is a no-op when run twice', function () {
 });
 
 it('ignores a file id that no longer exists', function () {
-    (new VerifyUploadJob('01hznonexistent'))->handle(app(VerifyUpload::class));
+    $storage = Mockery::mock(StorageGateway::class);
+    $storage->shouldNotReceive('head', 'delete', 'deleteVersion');
+    app()->instance(StorageGateway::class, $storage);
 
-    expect(true)->toBeTrue();
+    expect(fn () => (new VerifyUploadJob('01hznonexistent'))->handle(app(VerifyUpload::class)))->not->toThrow(Throwable::class)
+        ->and(File::count())->toBe(0);
 });
 
 it('is queued on the uploads queue with retries', function () {
