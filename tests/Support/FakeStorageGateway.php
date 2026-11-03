@@ -119,9 +119,9 @@ final class FakeStorageGateway implements StorageGateway
         return $id;
     }
 
-    public function presignPart(ObjectKey $key, string $uploadId, int $partNumber, int $ttlSeconds): PresignedRequest
+    public function presignPart(ObjectKey $key, string $uploadId, int $partNumber, int $partSizeBytes, int $ttlSeconds): PresignedRequest
     {
-        return $this->request('PUT', $key, [], $ttlSeconds, "&partNumber={$partNumber}&uploadId={$uploadId}");
+        return $this->request('PUT', $key, ['Content-Length' => (string) $partSizeBytes], $ttlSeconds, "&partNumber={$partNumber}&uploadId={$uploadId}");
     }
 
     /**

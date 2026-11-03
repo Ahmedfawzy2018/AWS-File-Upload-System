@@ -71,10 +71,8 @@ final class InitiateUpload
         $uploadId = (string) $file->multipart_upload_id;
         $parts = [];
         foreach (range(1, $size->partCount($partSize)) as $number) {
-            $parts[] = [
-                'part_number' => $number,
-                'url' => $this->storage->presignPart($key, $uploadId, $number, $ttl)->url,
-            ];
+            $part = $this->storage->presignPart($key, $uploadId, $number, $size->partLength($partSize, $number), $ttl);
+            $parts[] = ['part_number' => $number, 'url' => $part->url, 'headers' => $part->headers];
         }
 
         return new InitiatedUpload($file, null, $parts, $partSize, $expiresAt);

@@ -50,7 +50,8 @@ it('multipart upload with a lowered threshold', function () {
     $chunks = [str_repeat('a', 5 * 1024 * 1024), str_repeat('b', 1024 * 1024 + 1)];
     $parts = [];
     foreach ($init['upload']['parts'] as $i => $part) {
-        $response = Http::withBody($chunks[$i], 'text/plain')->put($part['url'])->throw();
+        expect($part['headers'])->toBe(['Content-Length' => (string) strlen($chunks[$i])]);
+        $response = Http::withHeaders($part['headers'])->withBody($chunks[$i], 'text/plain')->put($part['url'])->throw();
         $parts[] = ['part_number' => $part['part_number'], 'etag' => $response->header('ETag')];
     }
 

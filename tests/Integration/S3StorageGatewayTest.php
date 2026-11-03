@@ -73,8 +73,9 @@ it('multipart: create, presign parts, complete', function () {
     $bodies = [1 => str_repeat('a', 5 * 1024 * 1024), 2 => 'b'];
     $etags = [];
     foreach ($bodies as $n => $body) {
-        $req = gateway()->presignPart($key, $uploadId, $n, 3600);
-        expect(array_change_key_case($req->headers))->not->toHaveKey('content-type');
+        $req = gateway()->presignPart($key, $uploadId, $n, strlen($body), 3600);
+        expect(array_change_key_case($req->headers))->not->toHaveKey('content-type')
+            ->and($req->headers)->toBe(['Content-Length' => (string) strlen($body)]);
         $res = Http::withHeaders($req->headers)->withBody($body, 'application/octet-stream')->put($req->url)->throw();
         $etags[$n] = $res->header('ETag');
     }
@@ -84,11 +85,22 @@ it('multipart: create, presign parts, complete', function () {
     expect(gateway()->head($key)->sizeBytes)->toBe(5 * 1024 * 1024 + 1);
 });
 
+it('rejects a part body whose length differs from the signed part size', function () {
+    $key = uniqueKey();
+    $uploadId = gateway()->createMultipart($key, MimeType::fromString('text/plain'));
+    $req = gateway()->presignPart($key, $uploadId, 1, 5, 3600);
+    $headers = $req->headers;
+    $headers['Content-Length'] = '6';
+
+    $status = Http::withHeaders($headers)->withBody('hello!', 'application/octet-stream')->put($req->url)->status();
+    expect($status)->toBeGreaterThanOrEqual(400)->toBeLessThan(500);
+});
+
 it('completeMultipart with a bogus etag throws InvalidParts', function () {
     $key = uniqueKey();
     $uploadId = gateway()->createMultipart($key, MimeType::fromString('text/plain'));
-    $req = gateway()->presignPart($key, $uploadId, 1, 3600);
-    Http::withBody('x', 'application/octet-stream')->put($req->url)->throw();
+    $req = gateway()->presignPart($key, $uploadId, 1, 1, 3600);
+    Http::withHeaders($req->headers)->withBody('x', 'application/octet-stream')->put($req->url)->throw();
 
     gateway()->completeMultipart($key, $uploadId, [1 => '"deadbeefdeadbeefdeadbeefdeadbeef"']);
 })->throws(InvalidParts::class);

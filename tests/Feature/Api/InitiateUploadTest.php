@@ -30,6 +30,17 @@ it('uses single at exactly 100 MB and multipart above', function () {
         ->assertJsonPath('upload.part_size', 16777216)->assertJsonCount(7, 'upload.parts');
 });
 
+it('returns the Content-Length each part URL is signed for', function () {
+    actingAsUser();
+    config(['uploads.multipart_threshold_bytes' => 16777216]);
+    $parts = $this->postJson('/api/v1/uploads', payload(size: 16777216 * 2 + 7))->assertCreated()->json('upload.parts');
+
+    expect($parts)->toHaveCount(3)
+        ->and($parts[0])->toBe(['part_number' => 1, 'url' => $parts[0]['url'], 'headers' => ['Content-Length' => '16777216']])
+        ->and($parts[1]['headers'])->toBe(['Content-Length' => '16777216'])
+        ->and($parts[2]['headers'])->toBe(['Content-Length' => '7']);
+});
+
 it('stores a multipart upload id and 1h expiry', function () {
     actingAsUser();
     $r = $this->postJson('/api/v1/uploads', payload(size: 104857601))->assertCreated();

@@ -10,7 +10,7 @@ use Carbon\CarbonImmutable;
 final readonly class InitiatedUpload
 {
     /**
-     * @param  list<array{part_number: int, url: string}>  $parts
+     * @param  list<array{part_number: int, url: string, headers: array<string, string>}>  $parts  headers must be sent verbatim
      */
     public function __construct(
         public File $file,

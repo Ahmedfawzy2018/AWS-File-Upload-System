@@ -10,6 +10,8 @@ it('re-signs requested parts', function () {
     expect($res->json('parts.0.part_number'))->toBe(2);
     expect($res->json('parts.1.url'))->toContain('partNumber=3');
     expect($res->json('expires_at'))->toBeString();
+    expect($res->json('parts.0.headers'))->toBe(['Content-Length' => (string) config('uploads.part_size_bytes')]);
+    expect($res->json('parts.1.headers'))->toBe(['Content-Length' => '1']);
 });
 
 it('rejects single uploads with 409', function () {

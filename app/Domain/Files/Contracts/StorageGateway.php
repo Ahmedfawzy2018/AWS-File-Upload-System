@@ -24,8 +24,13 @@ interface StorageGateway
      */
     public function createMultipart(ObjectKey $key, MimeType $type): string;
 
-    /** @throws StorageError */
-    public function presignPart(ObjectKey $key, string $uploadId, int $partNumber, int $ttlSeconds): PresignedRequest;
+    /**
+     * Presigns an UploadPart with Content-Length bound into the signature, so the URL only accepts
+     * a body of exactly $partSizeBytes. The returned headers must be sent verbatim.
+     *
+     * @throws StorageError
+     */
+    public function presignPart(ObjectKey $key, string $uploadId, int $partNumber, int $partSizeBytes, int $ttlSeconds): PresignedRequest;
 
     /**
      * @param  array<int, string>  $parts  partNumber => etag

@@ -54,14 +54,15 @@ final class S3StorageGateway implements StorageGateway
         ])['UploadId']);
     }
 
-    public function presignPart(ObjectKey $key, string $uploadId, int $partNumber, int $ttlSeconds): PresignedRequest
+    public function presignPart(ObjectKey $key, string $uploadId, int $partNumber, int $partSizeBytes, int $ttlSeconds): PresignedRequest
     {
-        return $this->presign('UploadPart', [
+        return $this->presignBound('UploadPart', [
             'Bucket' => $this->bucket,
             'Key' => $key->value(),
             'UploadId' => $uploadId,
             'PartNumber' => $partNumber,
-        ], [], $ttlSeconds);
+            'ContentLength' => $partSizeBytes,
+        ], ['Content-Length' => (string) $partSizeBytes], $ttlSeconds);
     }
 
     public function completeMultipart(ObjectKey $key, string $uploadId, array $parts): void
@@ -168,7 +169,8 @@ final class S3StorageGateway implements StorageGateway
     }
 
     /**
-     * Presigns with Content-Type, Content-Length and If-None-Match bound into the signature.
+     * Presigns with whichever of Content-Type, Content-Length and If-None-Match the command carries
+     * bound into the signature.
      *
      * @param  array<string, mixed>  $args
      * @param  array<string, string>  $headers
@@ -186,7 +188,13 @@ final class S3StorageGateway implements StorageGateway
             }
             $signer = new HeaderBindingSignatureV4('s3', (string) $this->s3->getRegion(), []);
 
-            return $signer->presign(\Aws\serialize($cmd), $this->s3->getCredentials()->wait(), $expiresAt);
+            $request = \Aws\serialize($cmd);
+            if (! isset($args['ContentType'])) {
+                // The SDK adds a default Content-Type (UploadPart); don't make clients match it.
+                $request = $request->withoutHeader('Content-Type');
+            }
+
+            return $signer->presign($request, $this->s3->getCredentials()->wait(), $expiresAt);
         });
 
         return new PresignedRequest($request->getMethod(), (string) $request->getUri(), $headers, $expiresAt);

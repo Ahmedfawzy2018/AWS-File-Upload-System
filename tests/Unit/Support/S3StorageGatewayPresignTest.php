@@ -28,6 +28,16 @@ it('also signs the checksum header when given', function () {
     expect(signedHeaders($req->url))->toContain('x-amz-checksum-sha256')->toContain('content-length');
 });
 
+it('binds the part length into presigned UploadPart signatures', function () {
+    config(['filesystems.disks.s3.key' => 'k', 'filesystems.disks.s3.secret' => 's']);
+    $req = app(StorageGateway::class)->presignPart(ObjectKey::fromString('users/1/a.txt'), 'upload-1', 2, 16777216, 3600);
+
+    expect(signedHeaders($req->url))->toBe('content-length;host')
+        ->and($req->method)->toBe('PUT')
+        ->and($req->headers)->toBe(['Content-Length' => '16777216'])
+        ->and($req->url)->toContain('partNumber=2')->toContain('uploadId=upload-1');
+});
+
 it('resolves the gateway without static keys (task role)', function () {
     config(['filesystems.disks.s3.key' => null, 'filesystems.disks.s3.secret' => null]);
 

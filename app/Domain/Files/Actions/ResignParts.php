@@ -18,7 +18,7 @@ final class ResignParts
 
     /**
      * @param  list<int>  $partNumbers
-     * @return list<array{part_number: int, url: string}>
+     * @return list<array{part_number: int, url: string, headers: array<string, string>}>
      */
     public function handle(File $file, array $partNumbers): array
     {
@@ -26,7 +26,9 @@ final class ResignParts
             throw new InvalidState($file->status, 're-sign parts of');
         }
 
-        $count = FileSize::fromBytes($file->size_bytes)->partCount((int) config('uploads.part_size_bytes'));
+        $size = FileSize::fromBytes($file->size_bytes);
+        $partSize = (int) config('uploads.part_size_bytes');
+        $count = $size->partCount($partSize);
         $invalid = array_values(array_filter($partNumbers, static fn (int $n): bool => $n < 1 || $n > $count));
         if ($invalid !== []) {
             throw new InvalidParts('Part numbers are out of range.', ['expected_parts' => $count, 'unexpected' => $invalid]);
@@ -35,9 +37,10 @@ final class ResignParts
         $ttl = (int) config('uploads.ttl.multipart');
         $uploadId = (string) $file->multipart_upload_id;
 
-        return array_map(fn (int $n): array => [
-            'part_number' => $n,
-            'url' => $this->storage->presignPart($file->objectKey(), $uploadId, $n, $ttl)->url,
-        ], $partNumbers);
+        return array_map(function (int $n) use ($file, $uploadId, $size, $partSize, $ttl): array {
+            $part = $this->storage->presignPart($file->objectKey(), $uploadId, $n, $size->partLength($partSize, $n), $ttl);
+
+            return ['part_number' => $n, 'url' => $part->url, 'headers' => $part->headers];
+        }, $partNumbers);
     }
 }

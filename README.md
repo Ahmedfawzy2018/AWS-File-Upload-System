@@ -124,7 +124,7 @@ curl -s --resolve localstack:4566:127.0.0.1 "$DL"
 
 ### Multipart upload
 
-Files above the threshold return `{"type":"multipart","part_size":...,"parts":[{"part_number","url"}],...}`. To try it with a small file, add `UPLOADS_MULTIPART_THRESHOLD_BYTES=6291456` and `UPLOADS_PART_SIZE_BYTES=5242880` to `.env` (parts must be at least 5 MiB except the last). Then:
+Files above the threshold return `{"type":"multipart","part_size":...,"parts":[{"part_number":1,"url":"...","headers":{"Content-Length":"16777216"}}],...}`. **Send each part with exactly its returned `headers`**: `Content-Length` is bound into the part URL's signature (every part is `part_size` bytes except the last, which holds the remainder), so a body of any other length is rejected by S3. `POST /uploads/{id}/parts` returns the same `{part_number, url, headers}` shape. To try it with a small file, add `UPLOADS_MULTIPART_THRESHOLD_BYTES=6291456` and `UPLOADS_PART_SIZE_BYTES=5242880` to `.env` (parts must be at least 5 MiB except the last). Then:
 
 ```bash
 head -c 12582912 /dev/zero | tr '\0' 'x' > big.txt          # 12 MiB = 3 parts
@@ -137,7 +137,8 @@ mkdir -p parts && split -b $PS big.txt parts/p_
 PARTS='[]'; n=1
 for f in parts/p_*; do
   URL=$(echo "$RESP" | jq -r ".upload.parts[$((n-1))].url")
-  ETAG=$(curl -s -D - -o /dev/null --resolve localstack:4566:127.0.0.1 -X PUT --data-binary @$f "$URL" \
+  LEN=$(echo "$RESP" | jq -r ".upload.parts[$((n-1))].headers[\"Content-Length\"]")   # must equal the size of $f
+  ETAG=$(curl -s -D - -o /dev/null --resolve localstack:4566:127.0.0.1 -X PUT -H "Content-Length: $LEN" --data-binary @$f "$URL" \
     | awk -F': ' 'tolower($1)=="etag"{print $2}' | tr -d '\r')
   PARTS=$(echo "$PARTS" | jq -c --argjson n $n --arg e "$ETAG" '. + [{part_number:$n,etag:$e}]'); n=$((n+1))
 done
