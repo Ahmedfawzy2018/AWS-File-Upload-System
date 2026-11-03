@@ -1,10 +1,15 @@
 <?php
 
+use App\Domain\Files\Actions\VerifyUpload;
 use App\Domain\Files\Contracts\StorageGateway;
+use App\Domain\Files\DTOs\StorageUsage;
 use App\Domain\Files\Rules\UploadRules;
+use App\Domain\Files\Services\QuotaLedger;
 use App\Domain\Files\ValueObjects\MimeType;
 use App\Domain\Files\ValueObjects\ObjectKey;
 use App\Infrastructure\Storage\S3StorageGateway;
+use App\Jobs\VerifyUploadJob;
+use App\Models\File;
 use App\Models\User;
 use Carbon\CarbonImmutable;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -83,4 +88,27 @@ function fakeS3(): FakeStorageGateway
     assert($s3 instanceof FakeStorageGateway);
 
     return $s3;
+}
+
+function pendingFile(int $size = 5, string $mime = 'text/plain', ?User $user = null): File
+{
+    $user ??= User::factory()->create();
+    $file = File::factory()->pending()->create([
+        'user_id' => $user->id,
+        'size_bytes' => $size,
+        'mime_type' => $mime,
+    ]);
+    app(QuotaLedger::class)->reserve($user->id, $size);
+
+    return $file;
+}
+
+function runVerify(File $file): void
+{
+    (new VerifyUploadJob($file->id))->handle(app(VerifyUpload::class));
+}
+
+function usageOf(int $userId): StorageUsage
+{
+    return app(QuotaLedger::class)->usage($userId);
 }
