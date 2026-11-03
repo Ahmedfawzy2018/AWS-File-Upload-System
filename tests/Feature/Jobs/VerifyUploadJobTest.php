@@ -6,6 +6,7 @@ use App\Domain\Files\Events\FileReady;
 use App\Domain\Files\Events\FileRejected;
 use App\Domain\Files\Events\FileUploaded;
 use App\Jobs\VerifyUploadJob;
+use App\Models\File;
 use Illuminate\Support\Facades\Event;
 
 it('marks a matching object ready and commits quota', function () {
@@ -73,6 +74,20 @@ it('deletes the plain object when the rejected object has no version id', functi
     expect($file->fresh()->status)->toBe(FileStatus::Rejected);
     expect(fakeS3()->deletedVersions())->toBe([]);
     expect(fakeS3()->objects())->not->toHaveKey($file->object_key);
+});
+
+it('permanently deletes the object when an abort expired the file after HEAD', function () {
+    $file = pendingFile(size: 5, mime: 'text/plain');
+    fakeS3()->putObject($file->object_key, 5, 'text/plain', 'v3');
+    fakeS3()->afterNextHead(fn () => File::whereKey($file->id)->update(['status' => FileStatus::Expired->value]));
+    $before = usageOf($file->user_id);
+
+    runVerify($file);
+
+    expect($file->fresh()->status)->toBe(FileStatus::Expired)
+        ->and(fakeS3()->objects())->not->toHaveKey($file->object_key)
+        ->and(fakeS3()->deletedVersions())->toBe([[$file->object_key, 'v3']])
+        ->and(usageOf($file->user_id))->toEqual($before);
 });
 
 it('is a no-op when run twice', function () {

@@ -42,6 +42,14 @@ final class VerifyUpload
         DB::transaction(function () use ($fileId, $meta): void {
             $file = File::query()->lockForUpdate()->find($fileId);
 
+            if ($file?->status === FileStatus::Expired) {
+                // An abort won the race after our HEAD: the object we found can never become ready.
+                $this->deleteObject($file, $meta);
+                Log::info('upload.verify.late_object_deleted', ['file_id' => $fileId, 'user_id' => $file->user_id]);
+
+                return;
+            }
+
             if ($file === null || $file->status !== FileStatus::Pending) {
                 return;
             }
@@ -71,13 +79,18 @@ final class VerifyUpload
         return null;
     }
 
-    private function reject(File $file, ObjectMetadata $meta, string $reason): void
+    private function deleteObject(File $file, ObjectMetadata $meta): void
     {
         if ($meta->versionId !== null) {
             $this->storage->deleteVersion($file->objectKey(), $meta->versionId);
         } else {
             $this->storage->delete($file->objectKey());
         }
+    }
+
+    private function reject(File $file, ObjectMetadata $meta, string $reason): void
+    {
+        $this->deleteObject($file, $meta);
 
         $file->transitionTo(FileStatus::Rejected);
         $file->failure_reason = $reason;

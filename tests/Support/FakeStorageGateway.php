@@ -39,6 +39,9 @@ final class FakeStorageGateway implements StorageGateway
 
     private ?DomainError $completeFailure = null;
 
+    /** @var (callable(): void)|null */
+    private $afterHead = null;
+
     private int $uploadSeq = 0;
 
     public function putObject(string $key, int $size, string $type, ?string $versionId = 'v1'): void
@@ -80,6 +83,12 @@ final class FakeStorageGateway implements StorageGateway
     public function failCompleteWith(DomainError $e): void
     {
         $this->completeFailure = $e;
+    }
+
+    /** One-shot: $fn runs right after the next head() lookup (simulates a race after HEAD). */
+    public function afterNextHead(callable $fn): void
+    {
+        $this->afterHead = $fn;
     }
 
     /** Size of the object completeMultipart will create when none was pre-seeded with putObject. */
@@ -148,6 +157,11 @@ final class FakeStorageGateway implements StorageGateway
     public function head(ObjectKey $key): ?ObjectMetadata
     {
         $o = $this->objects[$key->value()] ?? null;
+        if ($this->afterHead !== null) {
+            $fn = $this->afterHead;
+            $this->afterHead = null;
+            $fn();
+        }
 
         return $o === null ? null : new ObjectMetadata($o['size'], $o['type'], '"'.md5($key->value()).'"', $o['versionId']);
     }

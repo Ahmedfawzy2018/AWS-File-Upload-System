@@ -9,6 +9,7 @@ use App\Domain\Files\Enums\FileStatus;
 use App\Domain\Files\Enums\UploadType;
 use App\Domain\Files\Exceptions\InvalidState;
 use App\Domain\Files\Services\QuotaLedger;
+use App\Jobs\DeleteObjectJob;
 use App\Models\File;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -42,6 +43,12 @@ final class AbortUpload
             $file->failure_reason = 'aborted';
             $file->save();
             $this->ledger->release($file->user_id, $file->size_bytes);
+
+            // The abort may have beaten verification: a finished single PUT or an assembled multipart
+            // object may already be in S3. Remove it for good once the abort is committed.
+            if ($file->upload_type === UploadType::Single || $file->multipart_completed_at !== null) {
+                DeleteObjectJob::dispatch($file->object_key, true)->afterCommit();
+            }
 
             return $file;
         });
