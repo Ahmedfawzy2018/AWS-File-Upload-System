@@ -19,6 +19,7 @@ services:
     command: php artisan uploads:consume-s3-events
     working_dir: /var/www/html
     restart: unless-stopped
+    profiles: ["workers"]
     volumes:
       - .:/var/www/html
     depends_on:
