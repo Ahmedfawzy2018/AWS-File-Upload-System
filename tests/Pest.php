@@ -36,7 +36,7 @@ pest()->extend(TestCase::class)
 |
 */
 
-pest()->extend(TestCase::class)->in('Unit/Domain', 'Integration');
+pest()->extend(TestCase::class)->in('Unit/Domain', 'Unit/Support', 'Integration');
 
 function rules(): UploadRules
 {

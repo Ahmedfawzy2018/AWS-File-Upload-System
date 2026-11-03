@@ -28,13 +28,18 @@ class FilesServiceProvider extends ServiceProvider
         $this->app->bind(S3StorageGateway::class, function () {
             $disk = config('filesystems.disks.s3');
 
-            return new S3StorageGateway(new S3Client([
+            $config = [
                 'version' => 'latest',
                 'region' => $disk['region'],
                 'endpoint' => $disk['endpoint'] ?: null,
                 'use_path_style_endpoint' => (bool) $disk['use_path_style_endpoint'],
-                'credentials' => ['key' => $disk['key'], 'secret' => $disk['secret']],
-            ]), (string) config('uploads.bucket'));
+            ];
+            // Without static keys (production task role) the SDK default provider chain applies.
+            if (! empty($disk['key']) && ! empty($disk['secret'])) {
+                $config['credentials'] = ['key' => $disk['key'], 'secret' => $disk['secret']];
+            }
+
+            return new S3StorageGateway(new S3Client($config), (string) config('uploads.bucket'));
         });
         $this->app->bind(StorageGateway::class, S3StorageGateway::class);
     }

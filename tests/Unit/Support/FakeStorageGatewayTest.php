@@ -35,6 +35,54 @@ it('failCompleteWith makes completeMultipart throw the given error', function ()
     $fake->completeMultipart(ObjectKey::fromString('users/1/a.txt'), 'up', [1 => 'e']);
 })->throws(InvalidParts::class);
 
+it('failCompleteWith is one-shot so a corrected retry succeeds', function () {
+    $fake = new FakeStorageGateway;
+    $k = ObjectKey::fromString('users/1/a.txt');
+    $id = $fake->createMultipart($k, MimeType::fromString('text/plain'));
+    $fake->failCompleteWith(new InvalidParts('bad'));
+
+    expect(fn () => $fake->completeMultipart($k, $id, [1 => 'e']))->toThrow(InvalidParts::class);
+    $fake->completeMultipart($k, $id, [1 => 'e']);
+
+    expect($fake->head($k))->not->toBeNull();
+});
+
+it('completeMultipart uses the configured size and recorded type', function () {
+    $fake = new FakeStorageGateway;
+    $k = ObjectKey::fromString('users/1/a.txt');
+    $id = $fake->createMultipart($k, MimeType::fromString('video/mp4'));
+    $fake->setMultipartSize($id, 123);
+    $fake->completeMultipart($k, $id, [1 => 'e']);
+
+    expect($fake->head($k))->sizeBytes->toBe(123)->contentType->toBe('video/mp4');
+});
+
+it('completeMultipart keeps a pre-seeded object size', function () {
+    $fake = new FakeStorageGateway;
+    $k = ObjectKey::fromString('users/1/a.txt');
+    $fake->putObject('users/1/a.txt', 999, 'video/mp4');
+    $id = $fake->createMultipart($k, MimeType::fromString('video/mp4'));
+    $fake->completeMultipart($k, $id, [1 => 'e']);
+
+    expect($fake->head($k)->sizeBytes)->toBe(999);
+});
+
+it('completeMultipart throws NoSuchUpload for unknown or aborted ids', function () {
+    $fake = new FakeStorageGateway;
+    $k = ObjectKey::fromString('users/1/a.txt');
+    $id = $fake->createMultipart($k, MimeType::fromString('text/plain'));
+    $fake->abortMultipart($k, $id);
+
+    foreach (['nope', $id] as $bad) {
+        try {
+            $fake->completeMultipart($k, $bad, [1 => 'e']);
+            $this->fail('expected InvalidParts');
+        } catch (InvalidParts $e) {
+            expect($e->details())->toBe(['s3_code' => 'NoSuchUpload']);
+        }
+    }
+});
+
 it('completeMultipart creates the object; abort and deleteVersion are recorded', function () {
     $fake = new FakeStorageGateway;
     $k = ObjectKey::fromString('users/1/a.txt');
@@ -42,6 +90,7 @@ it('completeMultipart creates the object; abort and deleteVersion are recorded',
     $fake->completeMultipart($k, $id, [1 => 'e']);
     expect($fake->head($k))->not->toBeNull();
 
+    $id = $fake->createMultipart($k, MimeType::fromString('text/plain'));
     $fake->abortMultipart($k, $id);
     $fake->deleteVersion($k, 'v1');
 

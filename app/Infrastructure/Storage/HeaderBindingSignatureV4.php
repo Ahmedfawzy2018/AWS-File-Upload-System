@@ -22,6 +22,6 @@ final class HeaderBindingSignatureV4 extends S3SignatureV4
     /** @return array<string, bool> */
     protected function getPresignHeaderDenyList()
     {
-        return ['x-amz-user-agent' => true];
+        return array_diff_key(parent::getPresignHeaderDenyList(), ['content-type' => true]);
     }
 }

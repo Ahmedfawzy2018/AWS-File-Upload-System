@@ -8,6 +8,7 @@ use App\Domain\Files\Contracts\StorageGateway;
 use App\Domain\Files\DTOs\ObjectMetadata;
 use App\Domain\Files\DTOs\PresignedRequest;
 use App\Domain\Files\Exceptions\DomainError;
+use App\Domain\Files\Exceptions\InvalidParts;
 use App\Domain\Files\ValueObjects\FileSize;
 use App\Domain\Files\ValueObjects\MimeType;
 use App\Domain\Files\ValueObjects\ObjectKey;
@@ -26,6 +27,9 @@ final class FakeStorageGateway implements StorageGateway
 
     /** @var list<string> */
     private array $aborted = [];
+
+    /** @var array<string, int> */
+    private array $multipartSizes = [];
 
     private ?DomainError $completeFailure = null;
 
@@ -54,9 +58,16 @@ final class FakeStorageGateway implements StorageGateway
         return $this->aborted;
     }
 
+    /** One-shot: the next completeMultipart call throws $e, later calls succeed. */
     public function failCompleteWith(DomainError $e): void
     {
         $this->completeFailure = $e;
+    }
+
+    /** Size of the object completeMultipart will create when none was pre-seeded with putObject. */
+    public function setMultipartSize(string $uploadId, int $bytes): void
+    {
+        $this->multipartSizes[$uploadId] = $bytes;
     }
 
     public function presignPut(ObjectKey $key, MimeType $type, FileSize $size, int $ttlSeconds, ?string $checksumSha256Hex = null): PresignedRequest
@@ -86,14 +97,25 @@ final class FakeStorageGateway implements StorageGateway
         return $this->request('PUT', $key, [], $ttlSeconds, "&partNumber={$partNumber}&uploadId={$uploadId}");
     }
 
+    /**
+     * Size mechanism: a pre-seeded object (putObject) keeps its size and type; otherwise the
+     * size comes from setMultipartSize() (default 0) and the type from createMultipart().
+     */
     public function completeMultipart(ObjectKey $key, string $uploadId, array $parts): void
     {
         if ($this->completeFailure !== null) {
-            throw $this->completeFailure;
+            $e = $this->completeFailure;
+            $this->completeFailure = null;
+            throw $e;
         }
-        $type = $this->multiparts[$uploadId]['type'] ?? 'application/octet-stream';
-        unset($this->multiparts[$uploadId]);
-        $this->putObject($key->value(), 0, $type);
+        if (! isset($this->multiparts[$uploadId])) {
+            throw new InvalidParts('Multipart completion failed: NoSuchUpload', ['s3_code' => 'NoSuchUpload']);
+        }
+        $existing = $this->objects[$key->value()] ?? null;
+        $size = $existing['size'] ?? $this->multipartSizes[$uploadId] ?? 0;
+        $type = $existing['type'] ?? $this->multiparts[$uploadId]['type'];
+        unset($this->multiparts[$uploadId], $this->multipartSizes[$uploadId]);
+        $this->putObject($key->value(), $size, $type, $existing['versionId'] ?? 'v1');
     }
 
     public function abortMultipart(ObjectKey $key, string $uploadId): void
