@@ -95,7 +95,9 @@ final class ExpireStaleUploads
 
             $this->ledger->release($file->user_id, $file->size_bytes);
 
-            Log::info('upload.expired', ['file_id' => $fileId]);
+            Log::info('upload.expired', [
+                'file_id' => $fileId, 'user_id' => $file->user_id, 'size_bytes' => $file->size_bytes, 'reason' => 'ttl_expired',
+            ]);
 
             return true;
         });

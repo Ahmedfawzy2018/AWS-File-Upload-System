@@ -98,7 +98,9 @@ final class VerifyUpload
 
         $this->ledger->release($file->user_id, $file->size_bytes);
 
-        Log::warning('upload.rejected', ['file_id' => $file->id, 'reason' => $reason]);
+        Log::warning('upload.rejected', [
+            'file_id' => $file->id, 'user_id' => $file->user_id, 'size_bytes' => $file->size_bytes, 'reason' => $reason,
+        ]);
         event(new FileRejected($file->id, $reason));
     }
 
@@ -115,7 +117,7 @@ final class VerifyUpload
 
         $this->ledger->commit($file->user_id, $file->size_bytes);
 
-        Log::info('upload.ready', ['file_id' => $file->id, 'size_bytes' => $file->size_bytes]);
+        Log::info('upload.ready', ['file_id' => $file->id, 'user_id' => $file->user_id, 'size_bytes' => $file->size_bytes]);
         event(new FileReady($file->id));
     }
 }

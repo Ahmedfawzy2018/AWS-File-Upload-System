@@ -13,6 +13,7 @@ use App\Jobs\DeleteObjectJob;
 use App\Models\File;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 final class AbortUpload
 {
@@ -43,6 +44,9 @@ final class AbortUpload
             $file->failure_reason = 'aborted';
             $file->save();
             $this->ledger->release($file->user_id, $file->size_bytes);
+            Log::info('upload.expired', [
+                'file_id' => $file->id, 'user_id' => $file->user_id, 'size_bytes' => $file->size_bytes, 'reason' => 'aborted',
+            ]);
 
             // The abort may have beaten verification: a finished single PUT or an assembled multipart
             // object may already be in S3. Remove it for good once the abort is committed.

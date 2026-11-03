@@ -71,6 +71,8 @@ final class InitiateUpload
             throw $e;
         }
 
+        Log::info('upload.initiated', ['file_id' => $file->id, 'user_id' => $file->user_id, 'size_bytes' => $file->size_bytes]);
+
         if ($uploadId === null) {
             $put = $this->storage->presignPut($key, $mime, $size, $ttl, $data->checksumSha256);
 
