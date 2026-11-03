@@ -2,8 +2,10 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Api\V1\FileController;
 use App\Http\Controllers\Api\V1\TokenController;
 use App\Http\Controllers\Api\V1\UploadController;
+use App\Http\Controllers\Api\V1\UsageController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function (): void {
@@ -17,7 +19,10 @@ Route::prefix('v1')->group(function (): void {
         Route::post('uploads/{file}/parts', [UploadController::class, 'parts']);
         Route::post('uploads/{file}/abort', [UploadController::class, 'abort']);
 
-        // Placeholder; replaced in Task 11.
-        Route::get('me/usage', fn () => response()->json(['error' => ['code' => 'NOT_IMPLEMENTED', 'message' => 'Not implemented', 'details' => (object) []]], 501));
+        Route::get('files', [FileController::class, 'index']);
+        Route::get('files/{file}', [FileController::class, 'show']);
+        Route::get('files/{file}/download', [FileController::class, 'download']);
+        Route::delete('files/{file}', [FileController::class, 'destroy']);
+        Route::get('me/usage', [UsageController::class, 'show']);
     });
 });
