@@ -28,6 +28,9 @@ final class FakeStorageGateway implements StorageGateway
     /** @var list<string> */
     private array $aborted = [];
 
+    /** @var list<string> */
+    private array $completed = [];
+
     /** @var array<string, int> */
     private array $multipartSizes = [];
 
@@ -56,6 +59,12 @@ final class FakeStorageGateway implements StorageGateway
     public function aborted(): array
     {
         return $this->aborted;
+    }
+
+    /** @return list<string> upload ids for which completeMultipart succeeded */
+    public function completedUploads(): array
+    {
+        return $this->completed;
     }
 
     /** One-shot: the next completeMultipart call throws $e, later calls succeed. */
@@ -115,6 +124,7 @@ final class FakeStorageGateway implements StorageGateway
         $size = $existing['size'] ?? $this->multipartSizes[$uploadId] ?? 0;
         $type = $existing['type'] ?? $this->multiparts[$uploadId]['type'];
         unset($this->multiparts[$uploadId], $this->multipartSizes[$uploadId]);
+        $this->completed[] = $uploadId;
         $this->putObject($key->value(), $size, $type, $existing['versionId'] ?? 'v1');
     }
 

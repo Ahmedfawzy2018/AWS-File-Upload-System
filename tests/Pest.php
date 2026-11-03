@@ -3,6 +3,7 @@
 use App\Domain\Files\Actions\VerifyUpload;
 use App\Domain\Files\Contracts\StorageGateway;
 use App\Domain\Files\DTOs\StorageUsage;
+use App\Domain\Files\Enums\UploadType;
 use App\Domain\Files\Rules\UploadRules;
 use App\Domain\Files\Services\QuotaLedger;
 use App\Domain\Files\ValueObjects\MimeType;
@@ -98,6 +99,32 @@ function pendingFile(int $size = 5, string $mime = 'text/plain', ?User $user = n
         'size_bytes' => $size,
         'mime_type' => $mime,
     ]);
+    app(QuotaLedger::class)->reserve($user->id, $size);
+
+    return $file;
+}
+
+/** @return array{User, File} */
+function ownPendingFile(): array
+{
+    $user = actingAsUser();
+
+    return [$user, pendingFile(5, 'text/plain', $user)];
+}
+
+/** Pending multipart file with a real fake upload id and $parts parts. */
+function ownMultipartFile(User $user, int $parts = 3): File
+{
+    $partSize = (int) config('uploads.part_size_bytes');
+    $size = ($parts - 1) * $partSize + 1;
+    $file = File::factory()->pending()->create([
+        'user_id' => $user->id,
+        'size_bytes' => $size,
+        'mime_type' => 'text/plain',
+        'upload_type' => UploadType::Multipart,
+    ]);
+    $file->multipart_upload_id = fakeS3()->createMultipart($file->objectKey(), MimeType::fromString('text/plain'));
+    $file->save();
     app(QuotaLedger::class)->reserve($user->id, $size);
 
     return $file;

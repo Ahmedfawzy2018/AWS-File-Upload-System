@@ -13,6 +13,9 @@ Route::prefix('v1')->group(function (): void {
         Route::delete('auth/tokens/current', [TokenController::class, 'destroy']);
 
         Route::post('uploads', [UploadController::class, 'store'])->middleware('throttle:uploads-initiate');
+        Route::post('uploads/{file}/complete', [UploadController::class, 'complete']);
+        Route::post('uploads/{file}/parts', [UploadController::class, 'parts']);
+        Route::post('uploads/{file}/abort', [UploadController::class, 'abort']);
 
         // Placeholder; replaced in Task 11.
         Route::get('me/usage', fn () => response()->json(['error' => ['code' => 'NOT_IMPLEMENTED', 'message' => 'Not implemented', 'details' => (object) []]], 501));
