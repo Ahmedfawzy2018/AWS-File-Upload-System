@@ -91,11 +91,19 @@ final class S3StorageGateway implements StorageGateway
 
     public function abortMultipart(ObjectKey $key, string $uploadId): void
     {
-        $this->call(fn () => $this->s3->abortMultipartUpload([
-            'Bucket' => $this->bucket,
-            'Key' => $key->value(),
-            'UploadId' => $uploadId,
-        ]));
+        try {
+            $this->s3->abortMultipartUpload([
+                'Bucket' => $this->bucket,
+                'Key' => $key->value(),
+                'UploadId' => $uploadId,
+            ]);
+        } catch (AwsException $e) {
+            // Already aborted or lifecycle-expired: the goal state is reached.
+            if ($e->getAwsErrorCode() === 'NoSuchUpload') {
+                return;
+            }
+            throw new StorageError('Storage operation failed: '.$e->getMessage(), 0, $e);
+        }
     }
 
     public function head(ObjectKey $key): ?ObjectMetadata

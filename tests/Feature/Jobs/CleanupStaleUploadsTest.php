@@ -1,12 +1,16 @@
 <?php
 
 use App\Domain\Files\Actions\ExpireStaleUploads;
+use App\Domain\Files\Contracts\StorageGateway;
 use App\Domain\Files\Enums\FileStatus;
+use App\Domain\Files\Exceptions\StorageError;
+use App\Domain\Files\ValueObjects\ObjectKey;
 use App\Jobs\CleanupStaleUploadsJob;
 use App\Models\File;
 use Carbon\CarbonImmutable;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 
 function runCleanup(): int
 {
@@ -94,4 +98,44 @@ it('is scheduled every five minutes without overlap on one server', function () 
     expect($event->expression)->toBe('*/5 * * * *');
     expect($event->withoutOverlapping)->toBeTrue();
     expect($event->onOneServer)->toBeTrue();
+});
+
+it('keeps going when storage fails for one file', function () {
+    $a = pendingFile();
+    $b = pendingFile();
+    foreach ([$a, $b] as $f) {
+        $f->forceFill(['expires_at' => CarbonImmutable::now()->subHour()])->save();
+    }
+    $fake = fakeS3();
+    $bad = $a->object_key;
+    $gw = Mockery::mock(StorageGateway::class);
+    $gw->shouldReceive('head')->andReturnUsing(function (ObjectKey $key) use ($fake, $bad) {
+        if ($key->value() === $bad) {
+            throw new StorageError('boom');
+        }
+
+        return $fake->head($key);
+    });
+    $gw->shouldReceive('delete', 'deleteVersion', 'abortMultipart')->andReturnUsing(fn (...$args) => null);
+    app()->instance(StorageGateway::class, $gw);
+    Log::spy();
+
+    expect(runCleanup())->toBe(1);
+
+    expect($a->fresh()->status)->toBe(FileStatus::Pending);
+    expect(usageOf($a->user_id))->reservedBytes->toBe(5);
+    expect($b->fresh()->status)->toBe(FileStatus::Expired);
+    Log::shouldHaveReceived('warning')->with('upload.cleanup_failed', Mockery::on(fn ($c) => $c['file_id'] === $a->id));
+});
+
+it('expires a multipart file already aborted in S3', function () {
+    $user = actingAsUser();
+    $file = ownMultipartFile($user);
+    fakeS3()->abortMultipart($file->objectKey(), (string) $file->multipart_upload_id);
+    $file->forceFill(['expires_at' => CarbonImmutable::now()->subHour()])->save();
+
+    expect(runCleanup())->toBe(1);
+
+    expect($file->fresh()->status)->toBe(FileStatus::Expired);
+    expect(usageOf($user->id))->reservedBytes->toBe(0);
 });
