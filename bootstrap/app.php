@@ -45,7 +45,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 return null;
             }
 
-            return match (true) {
+            $response = match (true) {
                 $e instanceof DomainError => $envelope($e->errorCode(), $e->getMessage(), $e->httpStatus(), $e->details()),
                 $e instanceof ValidationException => $envelope('VALIDATION_FAILED', $e->getMessage(), 422, $e->errors()),
                 $e instanceof AuthenticationException => $envelope('UNAUTHENTICATED', 'Unauthenticated.', 401),
@@ -68,5 +68,12 @@ return Application::configure(basePath: dirname(__DIR__))
                     $e instanceof HttpExceptionInterface ? $e->getStatusCode() : 500,
                 ),
             };
+
+            // Keep Retry-After / X-RateLimit-* (429) and Allow (405) from the original exception.
+            if ($e instanceof HttpExceptionInterface) {
+                $response->headers->add($e->getHeaders());
+            }
+
+            return $response;
         });
     })->create();

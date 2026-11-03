@@ -66,7 +66,10 @@ it('renders domain errors with their own code and status', function () {
 it('renders rate limiting as 429 envelope', function () {
     Route::get('/api/limited', fn () => 'ok')->middleware('throttle:1,1');
     $this->getJson('/api/limited');
-    $this->getJson('/api/limited')->assertStatus(429)->assertJsonPath('error.code', 'RATE_LIMITED');
+    $this->getJson('/api/limited')->assertStatus(429)->assertJsonPath('error.code', 'RATE_LIMITED')
+        ->assertHeader('Retry-After')
+        ->assertHeader('X-RateLimit-Limit', '1')
+        ->assertHeader('X-RateLimit-Remaining', '0');
 });
 
 it('maps a lock timeout to 409 INVALID_STATE', function () {
@@ -93,7 +96,8 @@ it('renders 405 as HTTP_ERROR with its status text', function () {
     Route::get('/api/getonly', fn () => 'ok');
     $this->postJson('/api/getonly')->assertStatus(405)
         ->assertJsonPath('error.code', 'HTTP_ERROR')
-        ->assertJsonPath('error.message', 'Method Not Allowed');
+        ->assertJsonPath('error.message', 'Method Not Allowed')
+        ->assertHeader('Allow');
 });
 
 it('puts the request id into log context', function () {
