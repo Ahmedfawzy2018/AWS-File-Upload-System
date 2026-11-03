@@ -9,6 +9,7 @@ use App\Domain\Files\Services\QuotaLedger;
 use App\Infrastructure\Persistence\EloquentFileRepository;
 use App\Infrastructure\Storage\S3StorageGateway;
 use Aws\S3\S3Client;
+use Aws\Sqs\SqsClient;
 use Illuminate\Support\ServiceProvider;
 
 class FilesServiceProvider extends ServiceProvider
@@ -25,22 +26,27 @@ class FilesServiceProvider extends ServiceProvider
 
         $this->app->bind(QuotaLedger::class, fn () => new QuotaLedger((int) config('uploads.default_quota_bytes')));
 
-        $this->app->bind(S3StorageGateway::class, function () {
-            $disk = config('filesystems.disks.s3');
-
-            $config = [
-                'version' => 'latest',
-                'region' => $disk['region'],
-                'endpoint' => $disk['endpoint'] ?: null,
-                'use_path_style_endpoint' => (bool) $disk['use_path_style_endpoint'],
-            ];
-            // Without static keys (production task role) the SDK default provider chain applies.
-            if (! empty($disk['key']) && ! empty($disk['secret'])) {
-                $config['credentials'] = ['key' => $disk['key'], 'secret' => $disk['secret']];
-            }
-
-            return new S3StorageGateway(new S3Client($config), (string) config('uploads.bucket'));
-        });
+        $this->app->bind(S3StorageGateway::class, fn () => new S3StorageGateway(new S3Client($this->awsConfig()), (string) config('uploads.bucket')));
+        $this->app->bind(SqsClient::class, fn () => new SqsClient($this->awsConfig()));
         $this->app->bind(StorageGateway::class, S3StorageGateway::class);
+    }
+
+    /** @return array<string, mixed> */
+    private function awsConfig(): array
+    {
+        $disk = config('filesystems.disks.s3');
+
+        $config = [
+            'version' => 'latest',
+            'region' => $disk['region'],
+            'endpoint' => $disk['endpoint'] ?: null,
+            'use_path_style_endpoint' => (bool) $disk['use_path_style_endpoint'],
+        ];
+        // Without static keys (production task role) the SDK default provider chain applies.
+        if (! empty($disk['key']) && ! empty($disk['secret'])) {
+            $config['credentials'] = ['key' => $disk['key'], 'secret' => $disk['secret']];
+        }
+
+        return $config;
     }
 }

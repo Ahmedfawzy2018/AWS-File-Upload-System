@@ -13,6 +13,22 @@ services:
       localstack:
         condition: service_started
 
+  s3-consumer:
+    build:
+      context: ./docker/php
+    command: php artisan uploads:consume-s3-events
+    working_dir: /var/www/html
+    restart: unless-stopped
+    volumes:
+      - .:/var/www/html
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      localstack:
+        condition: service_started
+
   nginx:
     image: nginx:1.27-alpine
     ports:

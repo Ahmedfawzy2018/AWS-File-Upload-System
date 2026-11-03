@@ -139,3 +139,8 @@ function usageOf(int $userId): StorageUsage
 {
     return app(QuotaLedger::class)->usage($userId);
 }
+
+function fixture(string $name): string
+{
+    return (string) file_get_contents(__DIR__.'/Fixtures/'.$name);
+}
