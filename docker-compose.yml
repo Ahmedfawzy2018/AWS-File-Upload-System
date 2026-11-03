@@ -30,6 +30,21 @@ services:
       localstack:
         condition: service_started
 
+  scheduler:
+    build:
+      context: ./docker/php
+    command: php artisan schedule:work
+    working_dir: /var/www/html
+    restart: unless-stopped
+    profiles: ["workers"]
+    volumes:
+      - .:/var/www/html
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
   nginx:
     image: nginx:1.27-alpine
     ports:
