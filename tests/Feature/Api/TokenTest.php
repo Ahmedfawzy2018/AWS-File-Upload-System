@@ -28,3 +28,17 @@ it('revokes the current token', function () {
     app('auth')->forgetGuards();
     $this->withToken($token)->getJson('/api/v1/me/usage')->assertStatus(401);
 });
+
+it('expires tokens after 30 days by default', function () {
+    $user = User::factory()->create(['password' => 'secret-pass']);
+    $token = $this->postJson('/api/v1/auth/tokens', ['email' => $user->email, 'password' => 'secret-pass', 'device_name' => 'cli'])->json('token');
+
+    expect(config('sanctum.expiration'))->toBe(43200);
+
+    $this->travel(43199)->minutes();
+    $this->withToken($token)->getJson('/api/v1/me/usage')->assertOk();
+    app('auth')->forgetGuards();
+
+    $this->travel(2)->minutes();
+    $this->withToken($token)->getJson('/api/v1/me/usage')->assertStatus(401)->assertJsonPath('error.code', 'UNAUTHENTICATED');
+});

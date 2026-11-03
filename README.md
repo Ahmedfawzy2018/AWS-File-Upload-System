@@ -76,6 +76,7 @@ Errors share one shape: `{"error":{"code":"...","message":"...","details":{}}}`.
 | Single PUT / multipart / download URL TTL | 15 min / 60 min / 5 min | `UPLOADS_TTL_SINGLE_PUT`, `UPLOADS_TTL_MULTIPART`, `UPLOADS_TTL_DOWNLOAD` |
 | Rate limit: initiate / other | 60 / 300 per min | `UPLOADS_RATE_LIMIT_INITIATE`, `UPLOADS_RATE_LIMIT_DEFAULT` |
 | Idempotency window | 24 h | `UPLOADS_IDEMPOTENCY_TTL` |
+| API token lifetime (minutes) | 30 days | `SANCTUM_EXPIRATION` |
 | AWS SDK connect / request timeout | 3 s / 30 s | `AWS_HTTP_CONNECT_TIMEOUT`, `AWS_HTTP_TIMEOUT` |
 
 Allowed MIME types: `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `application/pdf`, `text/plain`, `text/csv`, `application/zip`, `video/mp4`, and Office docx/xlsx/pptx.
