@@ -43,7 +43,7 @@ final class ExpireStaleUploads
 
     private function expireLocked(string $fileId): bool
     {
-        $complete = Cache::lock("files:{$fileId}:complete", 60);
+        $complete = Cache::lock("files:{$fileId}:complete", CompleteUpload::COMPLETE_LOCK_TTL_SECONDS);
 
         if (! $complete->get()) {
             return false;

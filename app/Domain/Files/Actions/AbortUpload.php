@@ -23,7 +23,7 @@ final class AbortUpload
 
     public function handle(File $file): File
     {
-        return Cache::lock("files:{$file->id}:complete", 30)->block(10, fn (): File => $this->abort($file));
+        return Cache::lock("files:{$file->id}:complete", CompleteUpload::COMPLETE_LOCK_TTL_SECONDS)->block(10, fn (): File => $this->abort($file));
     }
 
     private function abort(File $file): File

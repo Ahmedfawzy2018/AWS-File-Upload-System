@@ -18,6 +18,12 @@ use Illuminate\Support\Facades\Cache;
 
 final class CompleteUpload
 {
+    /**
+     * TTL of the files:{id}:complete lock shared by complete, abort and cleanup. It must outlive a
+     * CompleteMultipartUpload call on a large object, which S3 can take well over 30 s to answer.
+     */
+    public const int COMPLETE_LOCK_TTL_SECONDS = 120;
+
     public function __construct(private readonly StorageGateway $storage) {}
 
     public function handle(CompleteUploadData $data): File
@@ -48,7 +54,7 @@ final class CompleteUpload
         $expected = FileSize::fromBytes($file->size_bytes)->partCount((int) config('uploads.part_size_bytes'));
         $this->assertParts($parts, $expected);
 
-        Cache::lock("files:{$file->id}:complete", 30)->block(10, function () use ($file, $parts): void {
+        Cache::lock("files:{$file->id}:complete", self::COMPLETE_LOCK_TTL_SECONDS)->block(10, function () use ($file, $parts): void {
             $file->refresh();
             if ($file->status !== FileStatus::Pending) {
                 throw new InvalidState($file->status, 'complete');
