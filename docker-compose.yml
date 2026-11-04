@@ -1,0 +1,108 @@
+services:
+  app:
+    build:
+      context: ./docker/php
+    working_dir: /var/www/html
+    volumes:
+      - .:/var/www/html
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      localstack:
+        condition: service_started
+
+  s3-consumer:
+    build:
+      context: ./docker/php
+    command: php artisan uploads:consume-s3-events
+    working_dir: /var/www/html
+    restart: unless-stopped
+    profiles: ["workers"]
+    volumes:
+      - .:/var/www/html
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      localstack:
+        condition: service_started
+
+  scheduler:
+    build:
+      context: ./docker/php
+    command: php artisan schedule:work
+    working_dir: /var/www/html
+    restart: unless-stopped
+    profiles: ["workers"]
+    volumes:
+      - .:/var/www/html
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  horizon:
+    build:
+      context: ./docker/php
+    command: php artisan horizon
+    working_dir: /var/www/html
+    restart: unless-stopped
+    profiles: ["workers"]
+    volumes:
+      - .:/var/www/html
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "${NGINX_PORT:-8080}:80"
+    volumes:
+      - .:/var/www/html:ro
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
+
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: uploads
+      MYSQL_USER: uploads
+      MYSQL_PASSWORD: secret
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-proot"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  localstack:
+    image: localstack/localstack:4
+    environment:
+      SERVICES: s3,sqs
+      S3_SKIP_SIGNATURE_VALIDATION: "0"
+      DEFAULT_REGION: us-east-1
+    ports:
+      - "4566:4566"
+    volumes:
+      - ./docker/localstack/init/ready.d:/etc/localstack/init/ready.d
+
+volumes:
+  mysql-data:

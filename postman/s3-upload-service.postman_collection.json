@@ -1,0 +1,517 @@
+{
+  "info": {
+    "name": "S3 Upload Service API",
+    "description": "Laravel S3 presigned-upload service, API v1.\n\nRun top to bottom: the scripts chain the token, file id and presigned URL between requests.\n\nAll endpoints except `POST /auth/tokens` need `Authorization: Bearer <token>` (set at collection level from `{{token}}`).\n\nErrors share one shape: `{\"error\":{\"code\",\"message\",\"details\"}}`.\n\nPresigned URLs from LocalStack point at `http://localstack:4566`. Set the `s3Resolve` variable to `127.0.0.1:4566` (the default) and the S3 requests are sent there with `Host: localstack:4566`, which keeps the signature valid. With real AWS, leave `s3Resolve` empty.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.request.headers.upsert({ key: 'Accept', value: 'application/json' });"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    { "key": "token", "value": "" },
+    { "key": "fileId", "value": "" },
+    { "key": "uploadUrl", "value": "" },
+    { "key": "uploadHeaders", "value": "{}" },
+    { "key": "downloadUrl", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Issue token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created with token', () => {",
+                  "  pm.response.to.have.status(201);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.token).to.be.a('string').and.not.empty;",
+                  "  pm.collectionVariables.set('token', body.token);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"{{password}}\",\n  \"device_name\": \"postman\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/tokens",
+            "description": "Exchange email/password for a Sanctum token (expires after `SANCTUM_EXPIRATION`, default 30 days). Throttled to 6 requests/min."
+          }
+        },
+        {
+          "name": "Issue token — wrong password (422)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('422 VALIDATION_FAILED on email', () => {",
+                  "  pm.response.to.have.status(422);",
+                  "  const err = pm.response.json().error;",
+                  "  pm.expect(err.code).to.eql('VALIDATION_FAILED');",
+                  "  pm.expect(err.details).to.have.property('email');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{email}}\",\n  \"password\": \"wrong-password\"\n}"
+            },
+            "url": "{{baseUrl}}/auth/tokens"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Single upload",
+      "item": [
+        {
+          "name": "Initiate upload",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.variables.set('idempotencyKey', pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 with single presigned PUT', () => {",
+                  "  pm.response.to.have.status(201);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.status).to.eql('pending');",
+                  "  pm.expect(body.upload.type).to.eql('single');",
+                  "  pm.expect(body.upload.headers).to.have.property('Content-Length', '5');",
+                  "  pm.collectionVariables.set('fileId', body.id);",
+                  "  pm.collectionVariables.set('uploadUrl', body.upload.url);",
+                  "  pm.collectionVariables.set('uploadHeaders', JSON.stringify(body.upload.headers));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{idempotencyKey}}", "description": "Optional. A repeat with the same key and body within 24 h returns the original response." }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filename\": \"hello.txt\",\n  \"mime_type\": \"text/plain\",\n  \"size_bytes\": 5\n}"
+            },
+            "url": "{{baseUrl}}/uploads",
+            "description": "Reserves quota and returns a presigned upload. Files at or below the multipart threshold (100 MiB) get `type: single` with one `url` and the exact `headers` to send; larger files get `type: multipart` with `part_size` and `parts[{part_number,url,headers}]`. Optional `checksum_sha256` (hex, single uploads only)."
+          }
+        },
+        {
+          "name": "PUT bytes to S3 (presigned)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Send exactly the signed headers returned by Initiate upload.",
+                  "const headers = JSON.parse(pm.collectionVariables.get('uploadHeaders') || '{}');",
+                  "Object.entries(headers).forEach(([key, value]) => pm.request.headers.upsert({ key, value }));",
+                  "pm.request.headers.remove('Accept');",
+                  "",
+                  "// LocalStack URLs use the Docker hostname; send to s3Resolve but keep the signed Host.",
+                  "const url = pm.collectionVariables.get('uploadUrl');",
+                  "const resolve = pm.environment.get('s3Resolve');",
+                  "const host = url.split('/')[2];",
+                  "pm.request.url = resolve ? url.replace(host, resolve) : url;",
+                  "if (resolve) pm.request.headers.upsert({ key: 'Host', value: host });"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('S3 accepted the object', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "PUT",
+            "header": [],
+            "body": { "mode": "raw", "raw": "hello" },
+            "url": "{{uploadUrl}}",
+            "description": "Goes straight to S3, not the API. The body must be exactly `size_bytes` long and every header from `upload.headers` must be sent unchanged (Content-Type, Content-Length, If-None-Match), or S3 answers 403. A second PUT to the same key returns 412."
+          }
+        },
+        {
+          "name": "Complete upload",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('202 Accepted', () => pm.response.to.have.status(202));",
+                  "pm.test('returns the file', () => pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('fileId')));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": "{{baseUrl}}/uploads/{{fileId}}/complete",
+            "description": "Confirms the upload; verification runs on the `uploads` queue, so poll `GET /files/{id}` until `ready`. Multipart uploads send `{\"parts\":[{\"part_number\":1,\"etag\":\"...\"}]}`. Optional `Idempotency-Key` header."
+          }
+        },
+        {
+          "name": "Get file (poll until ready)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const body = pm.response.json();",
+                  "const tries = Number(pm.variables.get('pollTries') || 0);",
+                  "if (body.status !== 'ready' && tries < 10) {",
+                  "  const until = Date.now() + 1000; while (Date.now() < until) {}",
+                  "  pm.variables.set('pollTries', tries + 1);",
+                  "  pm.execution.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "  pm.test('file is ready', () => {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(body.status).to.eql('ready');",
+                  "  });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/files/{{fileId}}",
+            "description": "File metadata. Status is one of `pending`, `verifying`, `ready`, `rejected`. Other users' files return 404."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Files",
+      "item": [
+        {
+          "name": "List files",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 with data array', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().data).to.be.an('array');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/files?status=ready&per_page=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["files"],
+              "query": [
+                { "key": "status", "value": "ready", "description": "Optional: pending, verifying, ready, rejected" },
+                { "key": "per_page", "value": "20", "description": "Optional, max 100" },
+                { "key": "cursor", "value": "", "disabled": true, "description": "From meta.next_cursor" }
+              ]
+            },
+            "description": "Own files, newest first, cursor pagination."
+          }
+        },
+        {
+          "name": "Download URL",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 with presigned GET', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.url).to.be.a('string');",
+                  "  pm.expect(body.expires_at).to.be.a('string');",
+                  "  pm.collectionVariables.set('downloadUrl', body.url);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/files/{{fileId}}/download",
+            "description": "Presigned GET, valid 5 minutes. Ready files only (409 INVALID_STATE otherwise)."
+          }
+        },
+        {
+          "name": "GET bytes from S3 (presigned)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.request.headers.remove('Accept');",
+                  "const url = pm.collectionVariables.get('downloadUrl');",
+                  "const resolve = pm.environment.get('s3Resolve');",
+                  "const host = url.split('/')[2];",
+                  "pm.request.url = resolve ? url.replace(host, resolve) : url;",
+                  "if (resolve) pm.request.headers.upsert({ key: 'Host', value: host });"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('downloaded the uploaded bytes', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.text()).to.eql('hello');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{downloadUrl}}"
+          }
+        },
+        {
+          "name": "Usage",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 with quota numbers', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  ['used_bytes', 'reserved_bytes', 'quota_bytes'].forEach(k => pm.expect(body[k]).to.be.a('number'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/me/usage"
+          }
+        },
+        {
+          "name": "Delete file",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/files/{{fileId}}",
+            "description": "Soft delete; quota is released and the S3 object is removed by a queued job."
+          }
+        },
+        {
+          "name": "Get deleted file (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 NOT_FOUND envelope', () => {",
+                  "  pm.response.to.have.status(404);",
+                  "  pm.expect(pm.response.json().error.code).to.eql('NOT_FOUND');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/files/{{fileId}}"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Upload errors & other actions",
+      "item": [
+        {
+          "name": "Initiate — unsupported MIME (422)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('422 UNSUPPORTED_MEDIA_TYPE', () => {",
+                  "  pm.response.to.have.status(422);",
+                  "  pm.expect(pm.response.json().error.code).to.eql('UNSUPPORTED_MEDIA_TYPE');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filename\": \"run.exe\",\n  \"mime_type\": \"application/x-msdownload\",\n  \"size_bytes\": 10\n}"
+            },
+            "url": "{{baseUrl}}/uploads"
+          }
+        },
+        {
+          "name": "Initiate (to abort)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('abortFileId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"filename\": \"never-sent.pdf\",\n  \"mime_type\": \"application/pdf\",\n  \"size_bytes\": 1024\n}"
+            },
+            "url": "{{baseUrl}}/uploads"
+          }
+        },
+        {
+          "name": "Abort upload",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 with expired file', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().status).to.eql('expired');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": "{{baseUrl}}/uploads/{{abortFileId}}/abort",
+            "description": "Cancels a pending upload, releases its reserved quota and returns the file with status `expired`."
+          }
+        },
+        {
+          "name": "Re-sign multipart parts",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"part_numbers\": [1, 2]\n}" },
+            "url": "{{baseUrl}}/uploads/{{multipartFileId}}/parts",
+            "description": "Multipart uploads only (set `multipartFileId`). Returns fresh `parts[{part_number,url,headers}]` for expired URLs. Not part of the automated run."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Logout",
+      "item": [
+        {
+          "name": "Revoke current token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', () => pm.response.to.have.status(204));",
+                  "pm.collectionVariables.set('token', '');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": "{{baseUrl}}/auth/tokens/current"
+          }
+        }
+      ]
+    }
+  ]
+}
